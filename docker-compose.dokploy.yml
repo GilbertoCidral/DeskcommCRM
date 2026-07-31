@@ -9,7 +9,7 @@ services:
     image: ${APP_IMAGE:-ghcr.io/melgarafael/deskcommcrm:latest}
     pull_policy: ${APP_PULL_POLICY:-always}
     restart: unless-stopped
-    env_file: stack.env
+    env_file: .env
     depends_on:
       srh:
         condition: service_started
