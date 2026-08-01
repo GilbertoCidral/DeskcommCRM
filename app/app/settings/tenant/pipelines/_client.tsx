@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { updatePipelineConfig } from "@/app/actions/settings/updatePipelineConfig";
 import { createPipeline } from "@/app/actions/settings/createPipeline";
+import { archivePipeline } from "@/app/actions/settings/archivePipeline";
 import type { PipelineConfigPatch } from "@/lib/schemas/settings";
 import { AgentMappingSection, ancoraDoMapeamento } from "./_mapping";
 import { StagesSection, ancoraDasEtapas } from "./_stages";
@@ -16,6 +17,7 @@ export interface PipelineRow {
   id: string;
   name: string;
   slug: string;
+  is_default: boolean;
   vocabulary: Record<string, string> | null;
   settings: Record<string, unknown> | null;
 }
@@ -57,9 +59,14 @@ export function PipelinesClient({
       )}
       {pipelines.map((p) => (
         <Card key={p.id} className="space-y-6 p-6">
-          <header>
-            <h2 className="text-base font-semibold">{p.name}</h2>
-            <p className="text-xs text-muted-foreground">/{p.slug}</p>
+          <header className="flex items-start justify-between">
+            <div>
+              <h2 className="text-base font-semibold">{p.name}</h2>
+              <p className="text-xs text-muted-foreground">/{p.slug}</p>
+            </div>
+            {podeEditarConfig && !p.is_default && (
+              <ArchivePipelineButton pipelineId={p.id} pipelineName={p.name} />
+            )}
           </header>
           {/* As ETAPAS vêm primeiro, e a ordem é a do raciocínio de quem
               configura: primeiro o quadro existe do jeito da sua operação,
@@ -163,6 +170,25 @@ function PipelineEditor({ pipeline }: { pipeline: PipelineRow }) {
         </Button>
       </div>
     </div>
+  );
+}
+
+function ArchivePipelineButton({ pipelineId, pipelineName }: { pipelineId: string; pipelineName: string }) {
+  const [isPending, startTransition] = useTransition();
+
+  function handleArchive() {
+    if (!confirm(`Arquivar o funil "${pipelineName}"? Leads existentes não serão apagados.`)) return;
+    startTransition(async () => {
+      const r = await archivePipeline(pipelineId);
+      if (r.ok) toast.success("Funil arquivado.");
+      else toast.error(r.error);
+    });
+  }
+
+  return (
+    <Button variant="outline" size="sm" onClick={handleArchive} disabled={isPending}>
+      {isPending ? "Arquivando…" : "Arquivar funil"}
+    </Button>
   );
 }
 
