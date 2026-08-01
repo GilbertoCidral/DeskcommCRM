@@ -27,7 +27,7 @@ export function VersionFooter({ collapsed }: { collapsed: boolean }) {
         className={cn("px-3 py-1 text-[11px] text-muted-foreground/70", collapsed && "px-0 text-center")}
         title={`Versão ${label}`}
       >
-        {collapsed ? label.split(".").slice(0, 2).join(".") : `✅ versão ${label}`}
+        {collapsed ? label.split(".").slice(0, 2).join(".") : `versão ${label}`}
       </p>
     );
   }
