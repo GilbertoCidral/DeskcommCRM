@@ -186,4 +186,5 @@ export type AuditAction =
   | "pipeline.stage_updated"
   | "pipeline.stage_archived"
   | "system.update_requested"
-  | "system.update_finished";
+  | "system.update_finished"
+  | "pipeline.created";
