@@ -73,8 +73,8 @@ export function Sidebar({ collapsed }: { collapsed: boolean }) {
             className="h-7 w-auto max-w-[10rem] object-contain"
           />
         ) : (
-          <span className={cn("font-semibold tracking-tight", collapsed && "sr-only")}>
-            {brand.name}
+          <span className={cn("font-semibold tracking-tight text-primary", collapsed && "sr-only")}>
+            {brand.name} ✅
           </span>
         )}
         {collapsed && (
