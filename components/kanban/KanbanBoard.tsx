@@ -13,6 +13,7 @@ import type { Lead } from "@/lib/types/leads";
 import type { Pipeline, Stage } from "@/lib/kanban/types";
 import { StageColumn } from "./StageColumn";
 import { LeadDossier } from "./LeadDossier";
+import { LoseLeadDialog } from "./LoseLeadDialog";
 
 interface KanbanBoardProps {
   pipelineId: string;
@@ -115,6 +116,7 @@ export function KanbanBoard({
   // do estágio, que só existem aqui depois do agrupamento.
   const [dossieId, setDossieId] = useState<string | null>(null);
   const [internalSelected, setInternalSelected] = useState<Set<string>>(new Set());
+  const [loseDialogLeadId, setLoseDialogLeadId] = useState<string | null>(null);
   const selectedLeadIds = useMemo(
     () => (selectedIds ? new Set(selectedIds) : internalSelected),
     [selectedIds, internalSelected],
@@ -177,6 +179,15 @@ export function KanbanBoard({
       if (!lead) return;
 
       const destStageId = destination.droppableId;
+      const destStage = data.stages.find((s) => s.id === destStageId);
+
+      // Drag to lost stage: show reason dialog instead of moving directly.
+      // The /lose endpoint handles stage_id + lost_reason atomically.
+      if (destStage?.is_lost) {
+        setLoseDialogLeadId(lead.id);
+        return;
+      }
+
       const destList = (grouped.get(destStageId) ?? []).filter(
         (l) => l.id !== draggableId,
       );
@@ -260,6 +271,14 @@ export function KanbanBoard({
             data.stages.find((s) => s.id === leadDoDossie.stage_id)?.name ?? "—"
           }
           ownerNames={ownerNames}
+        />
+      )}
+      {loseDialogLeadId && (
+        <LoseLeadDialog
+          open
+          onOpenChange={(v) => !v && setLoseDialogLeadId(null)}
+          leadId={loseDialogLeadId}
+          pipelineId={pipelineId}
         />
       )}
     </DragDropContext>
