@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { updatePipelineConfig } from "@/app/actions/settings/updatePipelineConfig";
+import { createPipeline } from "@/app/actions/settings/createPipeline";
 import type { PipelineConfigPatch } from "@/lib/schemas/settings";
 import { AgentMappingSection, ancoraDoMapeamento } from "./_mapping";
 import { StagesSection, ancoraDasEtapas } from "./_stages";
@@ -46,24 +47,14 @@ export function PipelinesClient({
   /** Vocabulário/custom fields são admin (a server action recusa o resto). */
   podeEditarConfig: boolean;
 }) {
-  if (pipelines.length === 0) {
-    // ⚠️ NÃO PROMETA UM CAMINHO QUE NÃO EXISTE. Criar funil não é feito por
-    // nenhuma tela, rota ou action deste produto — só por script de instalação;
-    // e como o instalador não provisiona funil, ESTE é o estado de toda
-    // instalação nova. O texto anterior mandava "crie um no quadro", e o quadro
-    // vazio manda "Ir para Configurações": pingue-pongue fechado, com o usuário
-    // procurando um botão que não existe em lugar nenhum.
-    return (
-      <Card className="p-6 text-sm leading-relaxed text-muted-foreground">
-        Você ainda não tem nenhum funil. Enquanto for assim, o agente atende normalmente, mas não
-        tem para onde levar o card de ninguém — não há etapas para onde mover. Criar o funil é
-        feito por quem instalou o sistema, direto no banco; depois ele aparece aqui para você
-        escolher a etapa de cada passo.
-      </Card>
-    );
-  }
   return (
     <div className="flex flex-col gap-4">
+      {podeEditarConfig && <CreatePipelineForm />}
+      {pipelines.length === 0 && (
+        <Card className="p-6 text-sm leading-relaxed text-muted-foreground">
+          Nenhum funil ainda. Crie o primeiro usando o formulário acima.
+        </Card>
+      )}
       {pipelines.map((p) => (
         <Card key={p.id} className="space-y-6 p-6">
           <header>
@@ -172,5 +163,70 @@ function PipelineEditor({ pipeline }: { pipeline: PipelineRow }) {
         </Button>
       </div>
     </div>
+  );
+}
+
+function CreatePipelineForm() {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [slug, setSlug] = useState("");
+  const [isPending, startTransition] = useTransition();
+
+  function handleNameChange(v: string) {
+    setName(v);
+    setSlug(v.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9_-]/g, "").slice(0, 40));
+  }
+
+  function handleSubmit() {
+    startTransition(async () => {
+      const r = await createPipeline({ name, slug });
+      if (r.ok) {
+        toast.success("Funil criado com sucesso.");
+        setName("");
+        setSlug("");
+        setOpen(false);
+      } else {
+        toast.error(r.error);
+      }
+    });
+  }
+
+  if (!open) {
+    return (
+      <div className="flex justify-end">
+        <Button onClick={() => setOpen(true)}>+ Novo funil</Button>
+      </div>
+    );
+  }
+
+  return (
+    <Card className="p-6">
+      <h3 className="mb-4 text-sm font-semibold">Novo funil</h3>
+      <div className="flex flex-col gap-3">
+        <div className="space-y-1">
+          <Label className="text-xs">Nome</Label>
+          <Input
+            value={name}
+            onChange={(e) => handleNameChange(e.target.value)}
+            placeholder="Ex: Vendas, Suporte..."
+          />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">Slug (URL)</Label>
+          <Input
+            value={slug}
+            onChange={(e) => setSlug(e.target.value)}
+            placeholder="vendas"
+          />
+          <p className="text-xs text-muted-foreground">Somente letras minúsculas, números, - ou _</p>
+        </div>
+        <div className="flex justify-end gap-2">
+          <Button variant="outline" onClick={() => setOpen(false)} disabled={isPending}>Cancelar</Button>
+          <Button onClick={handleSubmit} disabled={isPending || !name || !slug}>
+            {isPending ? "Criando…" : "Criar funil"}
+          </Button>
+        </div>
+      </div>
+    </Card>
   );
 }
