@@ -59,3 +59,9 @@ jobs:
           cache-to: type=gha,mode=max
           # Sem build-args de segredo: a imagem é genérica (NEXT_PUBLIC_* viram
           # placeholder; valores reais entram em runtime no VPS do usuário).
+
+      - name: Trigger redeploy no Dokploy
+        if: github.ref == 'refs/heads/main'
+        run: |
+          curl -fsSL -X GET "${{ secrets.DOKPLOY_DEPLOY_URL }}" \
+            -o /dev/null -w "HTTP %{http_code}\n"
