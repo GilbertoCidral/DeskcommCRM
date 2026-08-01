@@ -22,8 +22,6 @@ export async function archivePipeline(pipelineId: string): Promise<ArchivePipeli
   }
 
   const supabase = await createClient();
-  const hdrs = await headers();
-  const requestId = hdrs.get("x-request-id");
 
   const { data: pipeline } = await supabase
     .from("crm_pipelines")
