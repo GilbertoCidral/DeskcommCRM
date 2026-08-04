@@ -24,6 +24,12 @@ export const PUBLIC_PATHS: RegExp[] = [
   /^\/favicon\.ico$/,
   /^\/team\/accept-invite\/.+$/,
   /^\/account-suspended$/,
+  // TV pairing: página de código (pública) + dashboard (protegido por tv_token no server component)
+  /^\/tv(\/par)?$/,
+  // TV pair API: generate e poll são públicos; confirm exige auth (checado no handler)
+  /^\/api\/v1\/tv\/pair\/(generate|poll)$/,
+  // TV data API: aceita tv_token cookie além da sessão Supabase (handler valida)
+  /^\/api\/v1\/tv$/,
 ];
 
 export function isPublicPath(pathname: string): boolean {

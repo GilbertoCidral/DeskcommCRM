@@ -44,7 +44,7 @@ export default function TvPairPage() {
     if (timerRef.current) clearInterval(timerRef.current);
 
     const res = await fetch("/api/v1/tv/pair/generate", { method: "POST" });
-    if (!res.ok) { setStatus("expired"); return; }
+    if (!res.ok) { setStatus("expired"); setCode(null); return; }
     const json = (await res.json()) as { data: { code: string } };
     setCode(json.data.code);
     setStatus("waiting");
@@ -156,7 +156,10 @@ export default function TvPairPage() {
           </>
         )}
         {status === "expired" && (
-          <div style={{ color: C.error, fontSize: 16 }}>Código expirado</div>
+          <div style={{ color: C.error, fontSize: 15, lineHeight: 1.5 }}>
+            Não foi possível gerar o código.<br />
+            <span style={{ fontSize: 12, color: C.muted }}>Tente gerar um novo abaixo.</span>
+          </div>
         )}
       </div>
 
