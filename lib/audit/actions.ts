@@ -187,4 +187,6 @@ export type AuditAction =
   | "pipeline.stage_archived"
   | "system.update_requested"
   | "system.update_finished"
-  | "pipeline.created";
+  | "pipeline.created"
+  | "org.tv_token_generated"
+  | "org.tv_config_updated";
