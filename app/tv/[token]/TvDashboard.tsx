@@ -128,11 +128,11 @@ function smoothPath(ctx: CanvasRenderingContext2D, pts: Array<{ x: number; y: nu
 
 interface Props {
   token: string;
-  initialData: TvData;
+  initialData: TvData | null;
 }
 
 export function TvDashboard({ token, initialData }: Props) {
-  const [data, setData] = useState<TvData>(initialData);
+  const [data, setData] = useState<TvData | null>(initialData);
   const [now, setNow] = useState(() => new Date());
   const [activeChart, setActiveChart] = useState<ChartType>("growth");
   const [countdown, setCountdown] = useState(10);
@@ -145,6 +145,15 @@ export function TvDashboard({ token, initialData }: Props) {
     const id = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(id);
   }, []);
+
+  // Fetch inicial quando não há SSR data (evita HTTP self-call no server)
+  useEffect(() => {
+    if (initialData) return;
+    fetch(`/api/v1/tv/${token}`, { cache: "no-store" })
+      .then((r) => r.ok ? r.json() : null)
+      .then((json) => { if (json?.data) setData(json.data as TvData); })
+      .catch(() => {});
+  }, [token, initialData]);
 
   // Polling de dados a cada 60s
   useEffect(() => {
@@ -260,6 +269,14 @@ export function TvDashboard({ token, initialData }: Props) {
     "rgba(80,109,72,.18)", "rgba(80,109,72,.32)", "rgba(80,109,72,.46)",
     "rgba(80,109,72,.60)", "rgba(80,109,72,.74)", C.accent,
   ];
+
+  if (!data) {
+    return (
+      <div style={{ height: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: C.bg, color: C.muted, fontFamily: "system-ui, sans-serif" }}>
+        Carregando painel…
+      </div>
+    );
+  }
 
   return (
     <div
