@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { cookies } from "next/headers";
 import { type NextRequest } from "next/server";
 
 import { ok, fail } from "@/lib/api/wrappers";
@@ -16,20 +17,38 @@ type WindowMonths = (typeof VALID_WINDOWS)[number];
 
 export async function GET(req: NextRequest): Promise<Response> {
   const requestId = randomUUID();
+  const admin = createAdminClient();
+
+  // Auth: sessão normal (browser autenticado) OU tv_token (TV pareada).
+  let orgId: string | null = null;
 
   const authUser = await loadAuthUser();
-  if (!authUser) return fail("unauthenticated", "Não autenticado.", 401, { requestId });
+  if (authUser) {
+    const activeOrg = await resolveActiveOrg(authUser);
+    if (activeOrg) orgId = activeOrg.orgId;
+  }
 
-  const activeOrg = await resolveActiveOrg(authUser);
-  if (!activeOrg) return fail("forbidden", "Tenant inativo.", 403, { requestId });
+  if (!orgId) {
+    const cookieStore = await cookies();
+    const tvToken = cookieStore.get("tv_token")?.value;
+    if (tvToken) {
+      const { data: pairRow } = await admin
+        .from("tv_pairing_codes")
+        .select("organization_id")
+        .eq("access_token", tvToken)
+        .eq("status", "confirmed")
+        .gt("token_expires_at", new Date().toISOString())
+        .maybeSingle();
+      if (pairRow?.organization_id) orgId = pairRow.organization_id as string;
+    }
+  }
+
+  if (!orgId) return fail("unauthenticated", "Não autenticado.", 401, { requestId });
 
   const raw = Number(req.nextUrl.searchParams.get("window") ?? "6");
   const windowMonths: WindowMonths = (VALID_WINDOWS as readonly number[]).includes(raw)
     ? (raw as WindowMonths)
     : 6;
-
-  const admin = createAdminClient();
-  const orgId = activeOrg.orgId;
 
   const { data: orgRow } = await admin
     .from("organizations")

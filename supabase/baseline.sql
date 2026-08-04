@@ -8576,3 +8576,19 @@ CREATE OR REPLACE FUNCTION "public"."retrieve_top_k_chunks"("p_organization_id" 
   order by c.embedding <=> p_embedding asc
   limit greatest(p_k, 0);
 $$;
+
+-- ---- tv_pairing_codes (migration 0098) ----
+create table if not exists tv_pairing_codes (
+  id               uuid        not null default uuid_generate_v4() primary key,
+  code             varchar(6)  not null,
+  status           text        not null default 'pending',
+  organization_id  uuid        references organizations(id) on delete cascade,
+  user_id          uuid        references auth.users(id) on delete set null,
+  access_token     uuid,
+  expires_at       timestamptz not null,
+  token_expires_at timestamptz,
+  created_at       timestamptz not null default now(),
+  constraint tv_pairing_codes_status_check check (status in ('pending', 'confirmed', 'expired'))
+);
+create index if not exists tv_pairing_codes_code_idx on tv_pairing_codes(code) where status = 'pending';
+create index if not exists tv_pairing_codes_access_token_idx on tv_pairing_codes(access_token) where status = 'confirmed';

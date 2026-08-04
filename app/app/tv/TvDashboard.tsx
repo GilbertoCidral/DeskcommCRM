@@ -143,6 +143,12 @@ export function TvDashboard() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rafRef = useRef<number | null>(null);
 
+  // Modal "Conectar TV"
+  const [showPairModal, setShowPairModal] = useState(false);
+  const [pairCode, setPairCode] = useState("");
+  const [pairState, setPairState] = useState<"idle" | "loading" | "success" | "error">("idle");
+  const [pairError, setPairError] = useState("");
+
   // Relógio
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 1000);
@@ -205,6 +211,26 @@ export function TvDashboard() {
     }, 1000);
     return () => clearInterval(id);
   }, [autoPlay]);
+
+  async function confirmPair() {
+    const code = pairCode.replace(/\D/g, "");
+    if (code.length !== 6) { setPairError("Digite os 6 dígitos do código."); return; }
+    setPairState("loading");
+    setPairError("");
+    const res = await fetch("/api/v1/tv/pair/confirm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code }),
+    });
+    if (res.ok) {
+      setPairState("success");
+      setTimeout(() => { setShowPairModal(false); setPairState("idle"); setPairCode(""); }, 2000);
+    } else {
+      const json = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
+      setPairError(json.error?.message ?? "Código inválido ou expirado.");
+      setPairState("error");
+    }
+  }
 
   function nextChart() {
     setActiveChart((cur) => {
@@ -345,6 +371,13 @@ export function TvDashboard() {
               <div style={{ fontSize: 11, color: C.muted }}>{dateStr}</div>
             </div>
           </div>
+          <button
+            type="button"
+            onClick={() => { setShowPairModal(true); setPairState("idle"); setPairCode(""); setPairError(""); }}
+            style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: C.accent, textDecoration: "none", background: C.accentSoft, border: `1px solid ${C.accent}`, borderRadius: 6, padding: "4px 9px", cursor: "pointer", fontFamily: "inherit" }}
+          >
+            📺 Conectar TV
+          </button>
           <a
             href="/app/leads"
             style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: C.muted, textDecoration: "none", background: C.elevated, border: `1px solid ${C.border}`, borderRadius: 6, padding: "4px 9px" }}
@@ -580,6 +613,74 @@ export function TvDashboard() {
           </div>
         </div>
       </div>
+
+      {/* ── Modal: Conectar TV ── */}
+      {showPairModal && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          style={{
+            position: "fixed", inset: 0, zIndex: 200,
+            background: "rgba(28,26,22,.55)", backdropFilter: "blur(4px)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}
+          onClick={(e) => { if (e.target === e.currentTarget) setShowPairModal(false); }}
+        >
+          <div style={{
+            background: C.surface, borderRadius: 16, padding: "28px 32px", width: 340,
+            boxShadow: "0 8px 40px rgba(0,0,0,.18)", display: "flex", flexDirection: "column", gap: 16,
+          }}>
+            <div style={{ fontWeight: 700, fontSize: 16 }}>📺 Conectar TV</div>
+            <p style={{ fontSize: 13, color: C.muted, margin: 0, lineHeight: 1.5 }}>
+              Na TV, abra <strong>seucrm.com/tv/par</strong> e digite o código de 6 dígitos que aparece na tela.
+            </p>
+
+            {pairState === "success" ? (
+              <div style={{ textAlign: "center", fontSize: 15, color: C.success, fontWeight: 700, padding: "12px 0" }}>
+                TV conectada com sucesso!
+              </div>
+            ) : (
+              <>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={7}
+                  placeholder="000 000"
+                  value={pairCode}
+                  onChange={(e) => { setPairCode(e.target.value); setPairState("idle"); setPairError(""); }}
+                  onKeyDown={(e) => { if (e.key === "Enter") void confirmPair(); }}
+                  style={{
+                    textAlign: "center", fontSize: 28, fontWeight: 700, letterSpacing: "0.2em",
+                    fontVariantNumeric: "tabular-nums", padding: "12px 16px", borderRadius: 8,
+                    border: `1px solid ${pairState === "error" ? C.error : C.border}`,
+                    outline: "none", fontFamily: "inherit", color: C.text, background: C.bg,
+                  }}
+                />
+                {pairError && (
+                  <div style={{ fontSize: 12, color: C.error, marginTop: -8 }}>{pairError}</div>
+                )}
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    type="button"
+                    onClick={() => setShowPairModal(false)}
+                    style={{ flex: 1, padding: "9px 0", borderRadius: 8, border: `1px solid ${C.border}`, background: C.elevated, color: C.muted, fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void confirmPair()}
+                    disabled={pairState === "loading"}
+                    style={{ flex: 2, padding: "9px 0", borderRadius: 8, border: "none", background: C.accent, color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", opacity: pairState === "loading" ? 0.7 : 1 }}
+                  >
+                    {pairState === "loading" ? "Conectando…" : "Conectar"}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       <style>{`
         @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}

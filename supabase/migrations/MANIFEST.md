@@ -111,3 +111,4 @@ To re-apply on a fresh Supabase project, replay the migrations in version order 
 - **Integrations**: tenant_integrations, orders, nuvemshop_products
 - **Compliance**: lgpd_requests
 - **Ops**: incidents
+| `20260804000000` | `0098_tv_pairing_codes` | Tabela de pareamento TV: fluxo device-code (código 6 dígitos) para autenticar Smart TV sem PKCE |
