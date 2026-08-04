@@ -132,9 +132,9 @@ function smoothPath(ctx: CanvasRenderingContext2D, pts: Array<{ x: number; y: nu
 // Componente principal
 // ---------------------------------------------------------------------------
 
-export function TvDashboard() {
-  const [data, setData] = useState<TvData | null>(null);
-  const [loading, setLoading] = useState(true);
+export function TvDashboard({ initialData }: { initialData?: TvData }) {
+  const [data, setData] = useState<TvData | null>(initialData ?? null);
+  const [loading, setLoading] = useState(initialData ? false : true);
   const [windowMonths, setWindowMonths] = useState<6 | 12 | 24 | 36 | 60>(6);
   const [now, setNow] = useState(() => new Date());
   const [activeChart, setActiveChart] = useState<ChartType>("growth");
@@ -163,10 +163,11 @@ export function TvDashboard() {
       setLoading(true);
       try {
         const res = await fetch(`/api/v1/tv?window=${windowMonths}`, { cache: "no-store" });
-        if (!res.ok || cancelled) return;
+        if (cancelled) return;
+        if (!res.ok) { setLoading(false); return; }
         const json = (await res.json()) as { data: TvData };
-        if (json.data && !cancelled) {
-          setData(json.data);
+        if (!cancelled) {
+          if (json.data) setData(json.data);
           setLoading(false);
         }
       } catch {
