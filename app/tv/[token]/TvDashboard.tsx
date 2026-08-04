@@ -597,7 +597,7 @@ function drawGrowth(ctx: CanvasRenderingContext2D, w: number, h: number, progres
   ctx.strokeStyle = C.accent; ctx.lineWidth = 3.5; ctx.lineJoin = "round"; ctx.lineCap = "round"; ctx.stroke(); ctx.restore();
 
   ctx.beginPath(); ctx.strokeStyle = "#a8a398"; ctx.lineWidth = 1.5; ctx.setLineDash([4, 3]);
-  invs.forEach((v, i) => { i === 0 ? ctx.moveTo(tx(i), ty(v)) : ctx.lineTo(tx(i), ty(v)); });
+  invs.forEach((v, i) => { if (i === 0) ctx.moveTo(tx(i), ty(v)); else ctx.lineTo(tx(i), ty(v)); });
   ctx.stroke(); ctx.setLineDash([]);
 
   comPts.forEach(({ x, y }, i) => {
