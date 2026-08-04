@@ -10,7 +10,10 @@ export async function GET(req: NextRequest): Promise<Response> {
   const code = req.nextUrl.searchParams.get("code");
 
   if (!code || !/^\d{6}$/.test(code)) {
-    return NextResponse.redirect(new URL("/tv/par", req.url));
+    const back = req.nextUrl.clone();
+    back.pathname = "/tv/par";
+    back.search = "";
+    return NextResponse.redirect(back);
   }
 
   const admin = createAdminClient();
@@ -23,10 +26,17 @@ export async function GET(req: NextRequest): Promise<Response> {
     .maybeSingle();
 
   if (!data?.access_token) {
-    return NextResponse.redirect(new URL("/tv/par", req.url));
+    const back = req.nextUrl.clone();
+    back.pathname = "/tv/par";
+    back.search = "";
+    return NextResponse.redirect(back);
   }
 
-  const res = NextResponse.redirect(new URL("/tv", req.url));
+  // nextUrl preserva o host público (req.url pode ter 0.0.0.0 internamente).
+  const dest = req.nextUrl.clone();
+  dest.pathname = "/tv";
+  dest.search = "";
+  const res = NextResponse.redirect(dest);
   res.cookies.set("tv_token", data.access_token as string, {
     path: "/",
     maxAge: 365 * 24 * 60 * 60,
