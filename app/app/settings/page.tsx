@@ -52,6 +52,12 @@ const LINKS: SettingsLink[] = [
   },
   { href: "/app/audit", title: "Audit Log", description: "Histórico de ações.", managerOnly: true },
   {
+    href: "/app/settings/tv",
+    title: "Painel TV",
+    description: "Comissão e investimentos mensais para o painel de performance.",
+    adminOnly: true,
+  },
+  {
     href: "/app/settings/billing",
     title: "Billing",
     description: "Planos e cobrança (em breve).",
