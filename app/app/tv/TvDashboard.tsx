@@ -553,7 +553,10 @@ export function TvDashboard() {
                   </tr>
                 </thead>
                 <tbody>
-                  {[...data.monthly].reverse().map((m) => {
+                  {[...data.monthly]
+                    .reverse()
+                    .filter((m) => m.month === currMkNow || m.leads_created > 0 || m.leads_won > 0 || m.investment > 0)
+                    .map((m) => {
                     const isCurr = m.month === currMkNow;
                     return (
                       <tr key={m.month} style={{ background: isCurr ? C.accentSoft : "transparent" }}>

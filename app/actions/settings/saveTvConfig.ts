@@ -7,7 +7,7 @@ import { z } from "zod";
 import { audit } from "@/lib/audit";
 import { loadAuthUser, resolveActiveOrg } from "@/lib/auth/server";
 import { ROLE_RANK } from "@/lib/auth/types";
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 const investmentEntrySchema = z.object({
   id: z.string().min(1),
@@ -41,9 +41,10 @@ export async function saveTvConfig(input: TvConfigInput): Promise<SaveTvConfigRe
     return { ok: false, error: "forbidden_role" };
   }
 
-  const supabase = await createClient();
+  // Admin client: RLS bypassa para organizations.settings (orgId vem da sessão, não do body).
+  const admin = createAdminClient();
 
-  const { data: orgRow, error: readErr } = await supabase
+  const { data: orgRow, error: readErr } = await admin
     .from("organizations")
     .select("settings")
     .eq("id", activeOrg.orgId)
@@ -57,7 +58,7 @@ export async function saveTvConfig(input: TvConfigInput): Promise<SaveTvConfigRe
     tv_investments: parsed.data.investments,
   };
 
-  const { error: updateErr } = await supabase
+  const { error: updateErr } = await admin
     .from("organizations")
     .update({ settings: nextSettings })
     .eq("id", activeOrg.orgId);
