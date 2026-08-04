@@ -9,7 +9,8 @@ function generateCode(): string {
   return String(Math.floor(100000 + Math.random() * 900000));
 }
 
-export async function POST(): Promise<Response> {
+// GET para compatibilidade máxima com browsers de Smart TV.
+export async function GET(): Promise<Response> {
   const requestId = randomUUID();
   const admin = createAdminClient();
 

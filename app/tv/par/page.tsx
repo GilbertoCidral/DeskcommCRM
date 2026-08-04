@@ -43,12 +43,18 @@ export default function TvPairPage() {
     if (pollRef.current) clearInterval(pollRef.current);
     if (timerRef.current) clearInterval(timerRef.current);
 
-    const res = await fetch("/api/v1/tv/pair/generate", { method: "POST" });
-    if (!res.ok) { setStatus("expired"); setCode(null); return; }
-    const json = (await res.json()) as { data: { code: string } };
-    setCode(json.data.code);
-    setStatus("waiting");
-    startTimer();
+    try {
+      // GET para máxima compatibilidade com browsers de Smart TV.
+      const res = await fetch("/api/v1/tv/pair/generate", { cache: "no-store" });
+      if (!res.ok) { setStatus("expired"); return; }
+      const json = (await res.json()) as { data: { code: string } };
+      if (!json?.data?.code) { setStatus("expired"); return; }
+      setCode(json.data.code);
+      setStatus("waiting");
+      startTimer();
+    } catch {
+      setStatus("expired");
+    }
   }
 
   useEffect(() => {
@@ -63,23 +69,23 @@ export default function TvPairPage() {
   useEffect(() => {
     if (!code || status !== "waiting") return;
 
-    pollRef.current = setInterval(async () => {
-      const res = await fetch(`/api/v1/tv/pair/poll?code=${code}`);
-      if (!res.ok) return;
-      const json = (await res.json()) as {
-        data: { status: string; access_token?: string };
-      };
-
-      if (json.data.status === "confirmed" && json.data.access_token) {
-        clearInterval(pollRef.current!);
-        clearInterval(timerRef.current!);
-        setStatus("confirmed");
-        document.cookie = `tv_token=${json.data.access_token}; path=/; max-age=${365 * 24 * 60 * 60}; samesite=lax`;
-        setTimeout(() => router.push("/tv"), 1800);
-      } else if (json.data.status === "expired") {
-        clearInterval(pollRef.current!);
-        setStatus("expired");
-      }
+    pollRef.current = setInterval(function poll() {
+      fetch("/api/v1/tv/pair/poll?code=" + code, { cache: "no-store" })
+        .then(function(res) { return res.ok ? res.json() : null; })
+        .then(function(json) {
+          if (!json?.data) return;
+          if (json.data.status === "confirmed" && json.data.access_token) {
+            clearInterval(pollRef.current!);
+            clearInterval(timerRef.current!);
+            setStatus("confirmed");
+            document.cookie = "tv_token=" + json.data.access_token + "; path=/; max-age=" + (365 * 24 * 60 * 60) + "; samesite=lax";
+            setTimeout(function() { router.push("/tv"); }, 1800);
+          } else if (json.data.status === "expired") {
+            clearInterval(pollRef.current!);
+            setStatus("expired");
+          }
+        })
+        .catch(function() { /* mantém polling */ });
     }, 2000);
 
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
