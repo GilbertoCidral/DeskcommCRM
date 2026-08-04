@@ -9,20 +9,23 @@ import { loadAuthUser, resolveActiveOrg } from "@/lib/auth/server";
 import { ROLE_RANK } from "@/lib/auth/types";
 import { createClient } from "@/lib/supabase/server";
 
+const investmentEntrySchema = z.object({
+  id: z.string().min(1),
+  month: z.string().regex(/^\d{4}-\d{2}$/),
+  amount: z.number().min(0),
+});
+
 const tvConfigSchema = z.object({
   commission_rate: z.number().min(0).max(1),
-  monthly_investments: z.record(
-    z.string().regex(/^\d{4}-\d{2}$/), // YYYY-MM
-    z.number().min(0),
-  ),
+  investments: z.array(investmentEntrySchema),
 });
 
 export type TvConfigInput = z.infer<typeof tvConfigSchema>;
 export type SaveTvConfigResult = { ok: true } | { ok: false; error: string };
 
 /**
- * Salva configurações do Painel TV (taxa de comissão + investimentos mensais).
- * Merge não-destrutivo em organizations.settings — preserva tv_token e outros campos.
+ * Salva configurações do Painel TV (taxa de comissão + lista de investimentos).
+ * Merge não-destrutivo em organizations.settings — preserva outros campos.
  * Requer role admin no tenant.
  */
 export async function saveTvConfig(input: TvConfigInput): Promise<SaveTvConfigResult> {
@@ -51,7 +54,7 @@ export async function saveTvConfig(input: TvConfigInput): Promise<SaveTvConfigRe
   const nextSettings = {
     ...currentSettings,
     tv_commission_rate: parsed.data.commission_rate,
-    tv_monthly_investments: parsed.data.monthly_investments,
+    tv_investments: parsed.data.investments,
   };
 
   const { error: updateErr } = await supabase

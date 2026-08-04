@@ -7,16 +7,6 @@ import { TvSettingsClient } from "./_client";
 
 export const dynamic = "force-dynamic";
 
-function buildMonthKeys(): string[] {
-  const keys: string[] = [];
-  const now = new Date();
-  for (let i = -6; i <= 0; i++) {
-    const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
-    keys.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
-  }
-  return keys;
-}
-
 export default async function TvSettingsPage() {
   const user = await requireAuth();
   const activeOrg = await resolveActiveOrg(user);
@@ -33,29 +23,24 @@ export default async function TvSettingsPage() {
     .maybeSingle();
 
   const settings = ((orgRow?.settings as Record<string, unknown> | null) ?? {}) as {
-    tv_token?: string;
     tv_commission_rate?: number;
-    tv_monthly_investments?: Record<string, number>;
+    tv_investments?: Array<{ id: string; month: string; amount: number }>;
   };
 
-  const token = settings.tv_token ?? null;
   const commissionRate = settings.tv_commission_rate ?? 0.2;
-  const monthlyInvestments = settings.tv_monthly_investments ?? {};
-  const monthKeys = buildMonthKeys();
+  const investments = settings.tv_investments ?? [];
 
   return (
     <div className="flex h-full flex-col gap-6 p-6">
       <header>
         <h1 className="text-2xl font-semibold tracking-tight">Painel TV</h1>
         <p className="text-sm text-muted-foreground">
-          Link secreto para exibir performance em TV. Gere o link e compartilhe com o vendedor.
+          Configure comissão e investimentos para o painel de performance.
         </p>
       </header>
       <TvSettingsClient
-        token={token}
         commissionRate={commissionRate}
-        monthlyInvestments={monthlyInvestments}
-        monthKeys={monthKeys}
+        investments={investments}
       />
     </div>
   );

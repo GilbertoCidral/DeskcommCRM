@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 // ---------------------------------------------------------------------------
-// Tipos
+// Tipos (exportados para reutilização)
 // ---------------------------------------------------------------------------
 
 export interface TvFunnelStage {
@@ -17,12 +17,12 @@ export interface TvFunnelStage {
 }
 
 export interface TvMonthly {
-  month: string; // "YYYY-MM"
+  month: string;
   leads_created: number;
   leads_won: number;
   value_won_cents: number;
-  investment: number; // BRL
-  commission: number; // BRL
+  investment: number;
+  commission: number;
 }
 
 export interface TvKpis {
@@ -45,7 +45,7 @@ export interface TvData {
 }
 
 // ---------------------------------------------------------------------------
-// Constantes de design — mesmas do design system CRM (sage palette)
+// Constantes de design — palette sage do CRM
 // ---------------------------------------------------------------------------
 
 const C = {
@@ -80,11 +80,19 @@ const CHART_ORDER = ["growth", "conversion", "leads_vs_sales", "roi"] as const;
 type ChartType = (typeof CHART_ORDER)[number];
 
 const CHART_META: Record<ChartType, { title: string; legend: Array<{ label: string; color: string }> }> = {
-  growth:        { title: "Comissão vs Investimento",       legend: [{ label: "Comissão", color: C.accent }, { label: "Investimento", color: "#a8a398" }] },
-  conversion:    { title: "Conversão por Etapa do Funil",   legend: [{ label: "≥70% bom", color: C.success }, { label: "40–70%", color: C.warning }, { label: "<40% baixo", color: C.error }] },
-  leads_vs_sales:{ title: "Leads Captados vs Vendas/Mês",   legend: [{ label: "Leads", color: "rgba(80,109,72,.45)" }, { label: "Vendas", color: C.accent }] },
-  roi:           { title: "ROI Mensal (%)",                 legend: [{ label: "ROI %", color: C.accent }] },
+  growth:         { title: "Comissão vs Investimento",       legend: [{ label: "Comissão", color: C.accent }, { label: "Investimento", color: "#a8a398" }] },
+  conversion:     { title: "Conversão por Etapa do Funil",   legend: [{ label: "≥70% bom", color: C.success }, { label: "40–70%", color: C.warning }, { label: "<40% baixo", color: C.error }] },
+  leads_vs_sales: { title: "Leads Captados vs Vendas/Mês",   legend: [{ label: "Leads", color: "rgba(80,109,72,.45)" }, { label: "Vendas", color: C.accent }] },
+  roi:            { title: "ROI Mensal (%)",                 legend: [{ label: "ROI %", color: C.accent }] },
 };
+
+const WINDOWS = [
+  { label: "6M",  months: 6 },
+  { label: "12M", months: 12 },
+  { label: "2A",  months: 24 },
+  { label: "3A",  months: 36 },
+  { label: "5A",  months: 60 },
+] as const;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -102,9 +110,7 @@ function monthLabel(mk: string): string {
   const [, m] = mk.split("-");
   return ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"][parseInt(m!) - 1]!;
 }
-function pad(n: number): string { return String(n).padStart(2, "0"); }
 
-// Bezier suavizado (Catmull-Rom → cúbico)
 function smoothPath(ctx: CanvasRenderingContext2D, pts: Array<{ x: number; y: number }>) {
   if (pts.length === 0) return;
   ctx.moveTo(pts[0]!.x, pts[0]!.y);
@@ -126,13 +132,10 @@ function smoothPath(ctx: CanvasRenderingContext2D, pts: Array<{ x: number; y: nu
 // Componente principal
 // ---------------------------------------------------------------------------
 
-interface Props {
-  token: string;
-  initialData: TvData | null;
-}
-
-export function TvDashboard({ token, initialData }: Props) {
-  const [data, setData] = useState<TvData | null>(initialData);
+export function TvDashboard() {
+  const [data, setData] = useState<TvData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [windowMonths, setWindowMonths] = useState<6 | 12 | 24 | 36 | 60>(6);
   const [now, setNow] = useState(() => new Date());
   const [activeChart, setActiveChart] = useState<ChartType>("growth");
   const [countdown, setCountdown] = useState(10);
@@ -146,30 +149,44 @@ export function TvDashboard({ token, initialData }: Props) {
     return () => clearInterval(id);
   }, []);
 
-  // Fetch inicial quando não há SSR data (evita HTTP self-call no server)
+  // Fetch de dados (re-executa quando windowMonths muda)
   useEffect(() => {
-    if (initialData) return;
-    fetch(`/api/v1/tv/${token}`, { cache: "no-store" })
-      .then((r) => r.ok ? r.json() : null)
-      .then((json) => { if (json?.data) setData(json.data as TvData); })
-      .catch(() => {});
-  }, [token, initialData]);
+    let cancelled = false;
 
-  // Polling de dados a cada 60s
+    async function load() {
+      setLoading(true);
+      try {
+        const res = await fetch(`/api/v1/tv?window=${windowMonths}`, { cache: "no-store" });
+        if (!res.ok || cancelled) return;
+        const json = (await res.json()) as { data: TvData };
+        if (json.data && !cancelled) {
+          setData(json.data);
+          setLoading(false);
+        }
+      } catch {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    void load();
+    return () => { cancelled = true; };
+  }, [windowMonths]);
+
+  // Polling a cada 60s
   useEffect(() => {
     const id = setInterval(async () => {
       try {
-        const res = await fetch(`/api/v1/tv/${token}`, { cache: "no-store" });
+        const res = await fetch(`/api/v1/tv?window=${windowMonths}`, { cache: "no-store" });
         if (res.ok) {
           const json = (await res.json()) as { data: TvData };
           if (json.data) setData(json.data);
         }
       } catch {
-        // Silencioso — mantém dados anteriores se offline
+        // mantém dados anteriores se offline
       }
     }, 60_000);
     return () => clearInterval(id);
-  }, [token]);
+  }, [windowMonths]);
 
   // Ciclo automático de gráficos
   useEffect(() => {
@@ -189,135 +206,162 @@ export function TvDashboard({ token, initialData }: Props) {
     return () => clearInterval(id);
   }, [autoPlay]);
 
-  // Animação e renderização do canvas
-  const animate = useCallback((chartType: ChartType, chartData: TvData) => {
-    if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    const dur = 750;
-    const t0 = performance.now();
-    const tick = (t: number) => {
-      const p = Math.min((t - t0) / dur, 1);
-      const ease = 1 - Math.pow(1 - p, 3);
-      drawChart(canvasRef.current, chartType, chartData, ease);
-      if (p < 1) rafRef.current = requestAnimationFrame(tick);
-      else rafRef.current = null;
-    };
-    rafRef.current = requestAnimationFrame(tick);
-  }, []);
-
-  useEffect(() => {
-    animate(activeChart, data);
-  }, [activeChart, data, animate]);
-
-  // Resize
-  useEffect(() => {
-    const onResize = () => drawChart(canvasRef.current, activeChart, data, 1);
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, [activeChart, data]);
-
-  const nextChart = useCallback(() => {
+  function nextChart() {
     setActiveChart((cur) => {
       const idx = CHART_ORDER.indexOf(cur);
       return CHART_ORDER[(idx + 1) % CHART_ORDER.length]!;
     });
     setCountdown(10);
-  }, []);
+  }
 
-  // Valores derivados
+  // Animação do canvas (750ms cubic ease-out)
+  const animateChart = useCallback(() => {
+    if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+    const start = performance.now();
+    const dur = 750;
+
+    function tick(ts: number) {
+      const t = Math.min((ts - start) / dur, 1);
+      const progress = 1 - Math.pow(1 - t, 3);
+      drawChart(canvasRef.current, activeChart, data!, progress);
+      if (t < 1) rafRef.current = requestAnimationFrame(tick);
+    }
+
+    rafRef.current = requestAnimationFrame(tick);
+  }, [activeChart, data]);
+
+  useEffect(() => {
+    if (!data) return;
+    animateChart();
+
+    const obs = new ResizeObserver(() => { if (data) animateChart(); });
+    const el = canvasRef.current?.parentElement;
+    if (el) obs.observe(el);
+
+    return () => {
+      obs.disconnect();
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+    };
+  }, [data, animateChart]);
+
+  // ── Derivações ──
   const meta = CHART_META[activeChart];
-  const com = data.kpis.commission_this_month;
-  let beltIdx = 0;
-  for (let i = BELTS.length - 1; i >= 0; i--) {
-    if (com >= BELTS[i]!.goal) { beltIdx = i; break; }
-  }
-  const belt = BELTS[beltIdx]!;
-  const nextBelt = BELTS[Math.min(beltIdx + 1, BELTS.length - 1)]!;
-  const beltRange = nextBelt.goal - belt.goal;
-  const beltPct = beltRange > 0 ? Math.min(((com - belt.goal) / beltRange) * 100, 100) : 100;
+  const com = data?.kpis.commission_this_month ?? 0;
+  const belt = [...BELTS].reverse().find((b) => com >= b.goal) ?? BELTS[0]!;
+  const nextBelt = BELTS[BELTS.findIndex((b) => b.name === belt.name) + 1] ?? BELTS[BELTS.length - 1]!;
+  const beltPct = nextBelt.goal > 0 ? Math.min((com / nextBelt.goal) * 100, 100) : 100;
 
-  const days = ["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"];
-  const months = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
-  const dateStr = `${days[now.getDay()]}, ${now.getDate()} ${months[now.getMonth()]} ${now.getFullYear()}`;
-  const timeStr = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
-
-  const inv = data.monthly.at(-1)?.investment ?? 0;
-  const leads = data.kpis.leads_this_month;
-  const sales = data.kpis.sales_this_month;
-  const cpl = leads > 0 && inv > 0 ? fmtBRLFull(inv / leads) : "—";
-  const cac = sales > 0 && inv > 0 ? fmtBRLFull(inv / sales) : "—";
+  const currMkNow = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const currMonth = data?.monthly.find((m) => m.month === currMkNow);
+  const inv = currMonth?.investment ?? 0;
+  const totalLeads = data?.monthly.reduce((s, m) => s + m.leads_created, 0) ?? 0;
+  const cpl = inv > 0 && totalLeads > 0 ? fmtBRL(inv / totalLeads) : "—";
+  const cac = inv > 0 && (data?.kpis.sales_this_month ?? 0) > 0
+    ? fmtBRL(inv / data!.kpis.sales_this_month)
+    : "—";
   const roi = inv > 0 ? `${Math.round(((com - inv) / inv) * 100)}%` : "—";
-  const convPct = leads > 0 ? `${Math.round((sales / leads) * 100)}%` : "—";
+  const totalLeadsOpen = data?.kpis.leads_open ?? 0;
+  const totalWon = data?.monthly.reduce((s, m) => s + m.leads_won, 0) ?? 0;
+  const convPct = totalLeadsOpen + totalWon > 0
+    ? `${Math.round((totalWon / (totalLeadsOpen + totalWon)) * 100)}%`
+    : "—";
 
-  // Funil SVG
-  const fStages = data.funnel_stages;
-  const totalStages = fStages.length;
-  const sliceH = totalStages > 0 ? 100 / totalStages : 100;
-  const startW = 94;
-  const endW = 58;
+  const timeStr = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}:${String(now.getSeconds()).padStart(2, "0")}`;
+  const dateStr = now.toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "short" });
+
+  // Funil
+  const fStages = data?.funnel_stages ?? [];
+  const totalStages = Math.max(fStages.length, 1);
+  const sliceH = 100 / totalStages;
+  const startW = 94, endW = 58;
   const stepW = totalStages > 1 ? (startW - endW) / (totalStages - 1) : 0;
-  const widths = fStages.map((_, i) => startW - i * stepW);
 
-  function funnelPolygon(i: number) {
-    const y0 = i * sliceH, y1 = (i + 1) * sliceH;
-    const w0 = widths[i] ?? endW, w1 = widths[i + 1] ?? (endW - stepW);
-    const l0 = (100 - w0) / 2, r0 = 100 - l0;
-    const l1 = (100 - w1) / 2, r1 = 100 - l1;
-    return `${l0.toFixed(2)},${y0.toFixed(2)} ${r0.toFixed(2)},${y0.toFixed(2)} ${r1.toFixed(2)},${y1.toFixed(2)} ${l1.toFixed(2)},${y1.toFixed(2)}`;
+  function funnelPolygon(i: number): string {
+    const topW = startW - i * stepW;
+    const botW = startW - (i + 1) * stepW;
+    const topY = i * sliceH, botY = (i + 1) * sliceH;
+    const topL = (100 - topW) / 2, topR = topL + topW;
+    const botL = (100 - botW) / 2, botR = botL + botW;
+    return `${topL},${topY} ${topR},${topY} ${botR},${botY} ${botL},${botY}`;
   }
 
-  const stageColors = [
-    "rgba(80,109,72,.18)", "rgba(80,109,72,.32)", "rgba(80,109,72,.46)",
-    "rgba(80,109,72,.60)", "rgba(80,109,72,.74)", C.accent,
-  ];
+  const stageColors = ["#c8d9c2", "#afc9a7", "#8fb88a", "#70a76e", "#506d48", "#3d5537", "#2a3c27"];
 
-  if (!data) {
+  if (loading || !data) {
     return (
-      <div style={{ height: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: C.bg, color: C.muted, fontFamily: "system-ui, sans-serif" }}>
-        Carregando painel…
+      <div style={{
+        position: "fixed", inset: 0, zIndex: 100,
+        background: C.bg, display: "flex", alignItems: "center", justifyContent: "center",
+        flexDirection: "column", gap: 16,
+      }}>
+        <div style={{ width: 36, height: 36, borderRadius: "50%", border: `3px solid ${C.accentSoft}`, borderTopColor: C.accent, animation: "spin 0.9s linear infinite" }} />
+        <div style={{ fontSize: 13, color: C.muted }}>Carregando painel…</div>
+        <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
       </div>
     );
   }
 
   return (
-    <div
-      style={{
-        height: "100vh",
-        overflow: "hidden",
-        display: "grid",
-        gridTemplateRows: "64px auto 1fr",
-        background: C.bg,
-        color: C.text,
-        fontFamily: "var(--font-atkinson, system-ui, sans-serif)",
-      }}
-    >
-      {/* ── HEADER ── */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 24px", background: C.surface, borderBottom: `1px solid ${C.border}` }}>
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 100,
+      background: C.bg, display: "flex", flexDirection: "column",
+      fontFamily: "system-ui, -apple-system, sans-serif", color: C.text, overflow: "hidden",
+    }}>
+      {/* ── Header ── */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 24px", borderBottom: `1px solid ${C.border}`, background: C.surface, flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <div style={{ width: 34, height: 34, borderRadius: 8, background: C.accent, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 16 }}>
-            {data.org_name.charAt(0).toUpperCase()}
-          </div>
+          <div style={{ width: 32, height: 32, borderRadius: 8, background: C.accentSoft, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>📺</div>
           <div>
             <div style={{ fontWeight: 700, fontSize: 15 }}>Painel do Vendedor</div>
             <div style={{ fontSize: 11, color: C.muted }}>{data.org_name} · Performance em Tempo Real</div>
           </div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <div style={{ width: 8, height: 8, borderRadius: "50%", background: C.success, animation: "pulse 2s infinite" }} />
-          <div style={{ textAlign: "right" }}>
-            <div style={{ fontSize: 20, fontWeight: 700, fontVariantNumeric: "tabular-nums", letterSpacing: "0.02em" }}>{timeStr}</div>
-            <div style={{ fontSize: 11, color: C.muted }}>{dateStr}</div>
+
+        {/* Seletor de janela temporal */}
+        <div style={{ display: "flex", gap: 4 }}>
+          {WINDOWS.map((w) => (
+            <button
+              key={w.months}
+              type="button"
+              onClick={() => setWindowMonths(w.months as typeof windowMonths)}
+              style={{
+                padding: "4px 10px", borderRadius: 6, fontSize: 12, fontWeight: 600,
+                border: `1px solid ${windowMonths === w.months ? C.accent : C.border}`,
+                background: windowMonths === w.months ? C.accentSoft : C.elevated,
+                color: windowMonths === w.months ? C.accent : C.muted,
+                cursor: "pointer", fontFamily: "inherit",
+              }}
+            >
+              {w.label}
+            </button>
+          ))}
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <div style={{ width: 8, height: 8, borderRadius: "50%", background: C.success, animation: "pulse 2s infinite" }} />
+            <div style={{ textAlign: "right" }}>
+              <div style={{ fontSize: 20, fontWeight: 700, fontVariantNumeric: "tabular-nums", letterSpacing: "0.02em" }}>{timeStr}</div>
+              <div style={{ fontSize: 11, color: C.muted }}>{dateStr}</div>
+            </div>
           </div>
+          <a
+            href="/app/leads"
+            style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: C.muted, textDecoration: "none", background: C.elevated, border: `1px solid ${C.border}`, borderRadius: 6, padding: "4px 9px" }}
+          >
+            ✕ Sair
+          </a>
         </div>
       </div>
 
       {/* ── KPIs ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12, padding: "14px 24px", background: C.bg }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12, padding: "14px 24px", background: C.bg, flexShrink: 0 }}>
         {[
-          { label: "Comissão / Mês", value: fmtBRL(com), raw: com },
-          { label: "Valor Fechado", value: fmtBRL(data.kpis.value_won_cents_this_month / 100), raw: data.kpis.value_won_cents_this_month },
-          { label: "Leads no Funil", value: String(data.kpis.leads_open), raw: data.kpis.leads_open },
-          { label: "Reuniões", value: String(data.kpis.meetings_this_month), raw: data.kpis.meetings_this_month },
-          { label: "Vendas", value: String(data.kpis.sales_this_month), raw: data.kpis.sales_this_month },
+          { label: "Comissão / Mês", value: fmtBRL(com) },
+          { label: "Valor Fechado", value: fmtBRL(data.kpis.value_won_cents_this_month / 100) },
+          { label: "Leads no Funil", value: String(data.kpis.leads_open) },
+          { label: "Reuniões", value: String(data.kpis.meetings_this_month) },
+          { label: "Vendas", value: String(data.kpis.sales_this_month) },
         ].map((kpi) => (
           <div key={kpi.label} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, boxShadow: "0 1px 2px rgba(20,18,14,.05)", padding: "16px 18px", display: "flex", flexDirection: "column", gap: 8 }}>
             <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em", color: C.muted }}>{kpi.label}</div>
@@ -326,10 +370,10 @@ export function TvDashboard({ token, initialData }: Props) {
         ))}
       </div>
 
-      {/* ── MAIN GRID ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "34% 1fr 26%", gap: 12, padding: "0 24px 16px", overflow: "hidden", minHeight: 0 }}>
+      {/* ── Main grid ── */}
+      <div style={{ display: "grid", gridTemplateColumns: "34% 1fr 26%", gap: 12, padding: "0 24px 16px", overflow: "hidden", flex: 1, minHeight: 0 }}>
 
-        {/* ── FUNIL ── */}
+        {/* ── Funil ── */}
         <div style={{ display: "flex", flexDirection: "column", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, boxShadow: "0 1px 2px rgba(20,18,14,.05)", overflow: "hidden", minHeight: 0 }}>
           <div style={{ padding: "12px 16px 8px", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: C.muted, borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
             {data.pipeline_name ?? "Funil de Vendas"}
@@ -341,7 +385,6 @@ export function TvDashboard({ token, initialData }: Props) {
           ) : (
             <>
               <div style={{ flex: 1, display: "flex", gap: 8, padding: "6px 16px", minHeight: 0, overflow: "hidden" }}>
-                {/* SVG trapézio */}
                 <div style={{ position: "relative", flex: 1, minHeight: 0 }}>
                   <svg viewBox="0 0 100 100" preserveAspectRatio="none" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", display: "block" }}>
                     {fStages.map((s, i) => (
@@ -354,21 +397,15 @@ export function TvDashboard({ token, initialData }: Props) {
                       />
                     ))}
                   </svg>
-                  {/* Labels sobrepostos */}
                   {fStages.map((s, i) => {
                     const isDeep = i >= 3;
                     return (
                       <div
                         key={s.id}
                         style={{
-                          position: "absolute",
-                          left: 0, right: 0,
-                          top: `${i * sliceH}%`,
-                          height: `${sliceH}%`,
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          gap: 6,
+                          position: "absolute", left: 0, right: 0,
+                          top: `${i * sliceH}%`, height: `${sliceH}%`,
+                          display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
                         }}
                       >
                         <span style={{ fontWeight: 700, fontSize: 13, color: isDeep ? "#fff" : C.text, whiteSpace: "nowrap", textShadow: "0 1px 2px rgba(0,0,0,.2)" }}>
@@ -381,7 +418,6 @@ export function TvDashboard({ token, initialData }: Props) {
                     );
                   })}
                 </div>
-                {/* Taxas de conversão */}
                 <div style={{ width: 54, position: "relative", flexShrink: 0 }}>
                   {fStages.map((s, i) => {
                     const prev = fStages[i - 1];
@@ -391,8 +427,7 @@ export function TvDashboard({ token, initialData }: Props) {
                         key={s.id}
                         style={{
                           position: "absolute", left: 0, right: 0,
-                          top: `${i * sliceH}%`,
-                          height: `${sliceH}%`,
+                          top: `${i * sliceH}%`, height: `${sliceH}%`,
                           display: "flex", alignItems: "center",
                           fontSize: 10, color: C.muted, whiteSpace: "nowrap",
                         }}
@@ -403,7 +438,6 @@ export function TvDashboard({ token, initialData }: Props) {
                   })}
                 </div>
               </div>
-              {/* Perdidos */}
               {data.lost_stages.length > 0 && (
                 <div style={{ display: "flex", gap: 10, padding: "10px 16px 14px", borderTop: `1px solid ${C.border}`, flexShrink: 0 }}>
                   {data.lost_stages.map((ls) => (
@@ -418,14 +452,13 @@ export function TvDashboard({ token, initialData }: Props) {
           )}
         </div>
 
-        {/* ── GRÁFICO ── */}
+        {/* ── Gráfico ── */}
         <div style={{ display: "flex", flexDirection: "column", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, boxShadow: "0 1px 2px rgba(20,18,14,.05)", overflow: "hidden", minHeight: 0 }}>
           <div style={{ padding: "12px 16px 8px", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: C.muted, borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
             {meta.title}
           </div>
           <div style={{ flex: 1, padding: "12px 16px", display: "flex", flexDirection: "column", overflow: "hidden" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 6, marginBottom: 8, flexShrink: 0 }}>
-              {/* Legenda */}
               <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
                 {meta.legend.map((lg) => (
                   <div key={lg.label} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: C.muted }}>
@@ -434,7 +467,6 @@ export function TvDashboard({ token, initialData }: Props) {
                   </div>
                 ))}
               </div>
-              {/* Controles de ciclo */}
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 {autoPlay ? (
                   <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: C.muted }}>
@@ -466,7 +498,7 @@ export function TvDashboard({ token, initialData }: Props) {
           </div>
         </div>
 
-        {/* ── DIREITA ── */}
+        {/* ── Coluna direita ── */}
         <div style={{ display: "flex", flexDirection: "column", overflowY: "auto", minHeight: 0, gap: 10, paddingRight: 6 }}>
           {/* Belt */}
           <div style={{ flexShrink: 0, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, boxShadow: "0 1px 2px rgba(20,18,14,.05)", padding: "12px 18px" }}>
@@ -522,9 +554,7 @@ export function TvDashboard({ token, initialData }: Props) {
                 </thead>
                 <tbody>
                   {[...data.monthly].reverse().map((m) => {
-                    const now2 = new Date();
-                    const currMk = `${now2.getFullYear()}-${String(now2.getMonth() + 1).padStart(2, "0")}`;
-                    const isCurr = m.month === currMk;
+                    const isCurr = m.month === currMkNow;
                     return (
                       <tr key={m.month} style={{ background: isCurr ? C.accentSoft : "transparent" }}>
                         <td style={{ padding: "5px 4px", borderBottom: `1px solid ${C.border}`, fontWeight: 700, color: isCurr ? C.accent : C.text, whiteSpace: "nowrap" }}>
@@ -548,7 +578,10 @@ export function TvDashboard({ token, initialData }: Props) {
         </div>
       </div>
 
-      <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}`}</style>
+      <style>{`
+        @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+        @keyframes spin{to{transform:rotate(360deg)}}
+      `}</style>
     </div>
   );
 }
@@ -557,12 +590,7 @@ export function TvDashboard({ token, initialData }: Props) {
 // Renderização canvas
 // ---------------------------------------------------------------------------
 
-function drawChart(
-  canvas: HTMLCanvasElement | null,
-  chart: ChartType,
-  data: TvData,
-  progress: number,
-) {
+function drawChart(canvas: HTMLCanvasElement | null, chart: ChartType, data: TvData, progress: number) {
   if (!canvas) return;
   const par = canvas.parentElement;
   if (!par) return;
@@ -574,13 +602,12 @@ function drawChart(
   if (!ctx) return;
   ctx.clearRect(0, 0, w, h);
 
-  if (chart === "growth")        drawGrowth(ctx, w, h, progress, data);
-  else if (chart === "conversion")     drawConversion(ctx, w, h, progress, data);
+  if (chart === "growth")             drawGrowth(ctx, w, h, progress, data);
+  else if (chart === "conversion")    drawConversion(ctx, w, h, progress, data);
   else if (chart === "leads_vs_sales") drawLeadsVsSales(ctx, w, h, progress, data);
-  else if (chart === "roi")            drawROI(ctx, w, h, progress, data);
+  else if (chart === "roi")           drawROI(ctx, w, h, progress, data);
 }
 
-// ── Chart 1: Comissão vs Investimento ──
 function drawGrowth(ctx: CanvasRenderingContext2D, w: number, h: number, progress: number, data: TvData) {
   const pts = data.monthly;
   const coms = pts.map((m) => m.commission);
@@ -641,7 +668,6 @@ function drawGrowth(ctx: CanvasRenderingContext2D, w: number, h: number, progres
   pts.forEach((m, i) => ctx.fillText(monthLabel(m.month), tx(i), h - 10));
 }
 
-// ── Chart 2: Conversão por Etapa ──
 function drawConversion(ctx: CanvasRenderingContext2D, w: number, h: number, progress: number, data: TvData) {
   const stages = data.funnel_stages;
   if (stages.length < 2) {
@@ -675,9 +701,7 @@ function drawConversion(ctx: CanvasRenderingContext2D, w: number, h: number, pro
     const rr = 4;
 
     ctx.fillStyle = C.elevated;
-    ctx.beginPath();
-    ctx.roundRect(pL, y, pw, barH, rr);
-    ctx.fill();
+    ctx.beginPath(); ctx.roundRect(pL, y, pw, barH, rr); ctx.fill();
 
     if (barW > 0) {
       ctx.fillStyle = color; ctx.globalAlpha = 0.85;
@@ -694,7 +718,6 @@ function drawConversion(ctx: CanvasRenderingContext2D, w: number, h: number, pro
   });
 }
 
-// ── Chart 3: Leads vs Vendas por Mês ──
 function drawLeadsVsSales(ctx: CanvasRenderingContext2D, w: number, h: number, progress: number, data: TvData) {
   const pts = data.monthly;
   const leads = pts.map((m) => m.leads_created);
@@ -745,7 +768,6 @@ function drawLeadsVsSales(ctx: CanvasRenderingContext2D, w: number, h: number, p
   });
 }
 
-// ── Chart 4: ROI Mensal ──
 function drawROI(ctx: CanvasRenderingContext2D, w: number, h: number, progress: number, data: TvData) {
   const pts = data.monthly;
   const rois = pts.map((m) => {
@@ -773,7 +795,6 @@ function drawROI(ctx: CanvasRenderingContext2D, w: number, h: number, progress: 
     ctx.fillText(`${Math.round(maxV * (1 - g / 4))}%`, pL - 8, y + 4);
   }
 
-  // Agrupa pontos válidos em segmentos contíguos
   const segments: Array<Array<{ x: number; y: number; v: number }>> = [];
   let seg: Array<{ x: number; y: number; v: number }> = [];
   rois.forEach((v, i) => {

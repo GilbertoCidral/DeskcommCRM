@@ -36,7 +36,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/app/ai/skills", label: "Skills da IA", icon: PuzzlePiece, permission: "ai.skills.view" },
   { href: "/app/ai/evolution", label: "Evolução da IA", icon: ChartLineUp, permission: "ai.evolution.view" },
   { href: "/app/webhooks", label: "Webhooks", icon: WebhooksLogo, permission: "webhooks.manage" },
-  { href: "/app/settings/tv", label: "Painel TV", icon: MonitorPlay },
+  { href: "/app/tv", label: "Painel TV", icon: MonitorPlay },
   { href: "/app/settings", label: "Configurações", icon: Gear },
 ];
 

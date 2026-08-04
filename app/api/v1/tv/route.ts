@@ -1,65 +1,62 @@
-/**
- * GET /api/v1/tv/[token]
- *
- * Endpoint público de dados para o Painel TV do vendedor. Autenticado pelo
- * token de path (gerado em /app/settings/tv), nunca por cookie de sessão.
- *
- * Fluxo de segurança:
- *  1. Valida formato do token (32 hex chars) — rejeita qualquer outra coisa.
- *  2. Busca a org pelo token com admin client (bypassa RLS) + filtro manual.
- *  3. Todos os queries subsequentes filtram organization_id explicitamente.
- *     O token nunca sai da response — a org e seus dados é que são devolvidos.
- *
- * Rate limiting deliberadamente omitido no MVP: o token é o segredo, a rota
- * é read-only, e o polling esperado é 1 req/min de 1 IP fixo (TV). Adicionar
- * Upstash se uso se ampliar.
- */
 import { randomUUID } from "node:crypto";
 import { type NextRequest } from "next/server";
 
 import { ok, fail } from "@/lib/api/wrappers";
+import { loadAuthUser, resolveActiveOrg } from "@/lib/auth/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
-
-interface RouteCtx {
-  params: Promise<{ token: string }>;
-}
 
 function monthKey(d: Date): string {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
-export async function GET(_req: NextRequest, ctx: RouteCtx): Promise<Response> {
-  const requestId = randomUUID();
-  const { token } = await ctx.params;
+const VALID_WINDOWS = [6, 12, 24, 36, 60] as const;
+type WindowMonths = (typeof VALID_WINDOWS)[number];
 
-  // 32 hex chars — qualquer coisa diferente é inválida sem consulta ao banco.
-  if (!/^[a-f0-9]{32}$/.test(token)) {
-    return fail("resource_not_found", "Painel não encontrado.", 404, { requestId });
-  }
+export async function GET(req: NextRequest): Promise<Response> {
+  const requestId = randomUUID();
+
+  const authUser = await loadAuthUser();
+  if (!authUser) return fail("unauthenticated", "Não autenticado.", 401, { requestId });
+
+  const activeOrg = await resolveActiveOrg(authUser);
+  if (!activeOrg) return fail("forbidden", "Tenant inativo.", 403, { requestId });
+
+  const raw = Number(req.nextUrl.searchParams.get("window") ?? "6");
+  const windowMonths: WindowMonths = (VALID_WINDOWS as readonly number[]).includes(raw)
+    ? (raw as WindowMonths)
+    : 6;
 
   const admin = createAdminClient();
+  const orgId = activeOrg.orgId;
 
-  // Busca org pelo token: admin client + filter manual (bypassa RLS com segurança).
-  const { data: orgRow, error: orgErr } = await admin
+  const { data: orgRow } = await admin
     .from("organizations")
-    .select("id, display_name, status, settings")
-    .filter("settings->>tv_token", "eq", token)
-    .eq("status", "active")
+    .select("display_name, settings")
+    .eq("id", orgId)
     .maybeSingle();
 
-  if (orgErr) return fail("internal_error", orgErr.message, 500, { requestId });
-  if (!orgRow) return fail("resource_not_found", "Painel não encontrado.", 404, { requestId });
+  if (!orgRow) return fail("resource_not_found", "Org não encontrada.", 404, { requestId });
 
-  const orgId = orgRow.id as string;
   const orgSettings = (orgRow.settings as Record<string, unknown>) ?? {};
   const commissionRate =
     typeof orgSettings.tv_commission_rate === "number" ? orgSettings.tv_commission_rate : 0;
-  const monthlyInvestments =
-    (orgSettings.tv_monthly_investments as Record<string, number> | null) ?? {};
 
-  // Pipeline padrão da org (admin client — filtro manual obrigatório).
+  // New investment model: array of { id, month, amount }
+  const investmentsArr =
+    (orgSettings.tv_investments as Array<{ id: string; month: string; amount: number }> | null) ??
+    // Fallback: migrate old tv_monthly_investments format if present
+    Object.entries(
+      (orgSettings.tv_monthly_investments as Record<string, number> | null) ?? {},
+    ).map(([month, amount]) => ({ id: month, month, amount }));
+
+  const investmentByMonth = new Map<string, number>();
+  for (const inv of investmentsArr) {
+    investmentByMonth.set(inv.month, (investmentByMonth.get(inv.month) ?? 0) + inv.amount);
+  }
+
+  // Pipeline padrão da org.
   const { data: pipelineRaw } = await admin
     .from("crm_pipelines")
     .select("id, name")
@@ -73,7 +70,6 @@ export async function GET(_req: NextRequest, ctx: RouteCtx): Promise<Response> {
   const pipeline = pipelineRaw as { id: string; name: string } | null;
   const pipelineId = pipeline?.id ?? null;
 
-  // Estágios do pipeline.
   const { data: stagesRaw } = pipelineId
     ? await admin
         .from("crm_stages")
@@ -95,7 +91,6 @@ export async function GET(_req: NextRequest, ctx: RouteCtx): Promise<Response> {
 
   const stages = (stagesRaw ?? []) as StageRow[];
 
-  // Leads abertos por estágio (para o funil).
   const { data: openLeadsRaw } = pipelineId
     ? await admin
         .from("crm_leads")
@@ -110,12 +105,10 @@ export async function GET(_req: NextRequest, ctx: RouteCtx): Promise<Response> {
     countByStage.set(l.stage_id, (countByStage.get(l.stage_id) ?? 0) + 1);
   }
 
-  // Funil: estágios não-terminais, em ordem.
   const funnelStages = stages
     .filter((s) => !s.is_won && !s.is_lost)
     .map((s) => ({ ...s, open_count: countByStage.get(s.id) ?? 0 }));
 
-  // Estágios de perda com contagem de leads perdidos.
   const lostStageIds = stages.filter((s) => s.is_lost).map((s) => s.id);
   const { data: lostLeadsRaw } =
     lostStageIds.length > 0 && pipelineId
@@ -136,9 +129,11 @@ export async function GET(_req: NextRequest, ctx: RouteCtx): Promise<Response> {
     .map((s) => ({ name: s.name, count: lostCountByStage.get(s.id) ?? 0 }))
     .filter((s) => s.count > 0);
 
-  // Histórico mensal: últimos 7 meses (criação de leads + fechamentos).
+  // Histórico mensal: últimos windowMonths meses.
   const now = new Date();
-  const histStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 6, 1));
+  const histStart = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (windowMonths - 1), 1),
+  );
 
   const [{ data: createdRaw }, { data: wonRaw }] = await Promise.all([
     admin
@@ -154,9 +149,8 @@ export async function GET(_req: NextRequest, ctx: RouteCtx): Promise<Response> {
       .gte("closed_at", histStart.toISOString()),
   ]);
 
-  // Gera chaves dos últimos 7 meses em ordem.
   const monthKeys: string[] = [];
-  for (let i = -6; i <= 0; i++) {
+  for (let i = -(windowMonths - 1); i <= 0; i++) {
     const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + i, 1));
     monthKeys.push(monthKey(d));
   }
@@ -187,43 +181,45 @@ export async function GET(_req: NextRequest, ctx: RouteCtx): Promise<Response> {
 
   const monthly = monthKeys.map((mk) => {
     const b = buckets.get(mk)!;
-    const investment = monthlyInvestments[mk] ?? 0;
+    const investment = investmentByMonth.get(mk) ?? 0;
     const commission = Math.round((b.value_won_cents / 100) * commissionRate * 100) / 100;
-    return { month: mk, leads_created: b.leads_created, leads_won: b.leads_won, value_won_cents: b.value_won_cents, investment, commission };
+    return {
+      month: mk,
+      leads_created: b.leads_created,
+      leads_won: b.leads_won,
+      value_won_cents: b.value_won_cents,
+      investment,
+      commission,
+    };
   });
 
-  // KPIs do mês corrente.
   const currMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
   const currMk = monthKey(now);
 
-  const [
-    { count: leadsOpen },
-    { count: leadsThisMonth },
-    { data: wonThisMonthRaw },
-  ] = await Promise.all([
-    admin
-      .from("crm_leads")
-      .select("id", { count: "exact", head: true })
-      .eq("organization_id", orgId)
-      .eq("status", "open"),
-    admin
-      .from("crm_leads")
-      .select("id", { count: "exact", head: true })
-      .eq("organization_id", orgId)
-      .gte("created_at", currMonthStart.toISOString()),
-    admin
-      .from("crm_leads")
-      .select("value_cents")
-      .eq("organization_id", orgId)
-      .eq("status", "won")
-      .gte("closed_at", currMonthStart.toISOString()),
-  ]);
+  const [{ count: leadsOpen }, { count: leadsThisMonth }, { data: wonThisMonthRaw }] =
+    await Promise.all([
+      admin
+        .from("crm_leads")
+        .select("id", { count: "exact", head: true })
+        .eq("organization_id", orgId)
+        .eq("status", "open"),
+      admin
+        .from("crm_leads")
+        .select("id", { count: "exact", head: true })
+        .eq("organization_id", orgId)
+        .gte("created_at", currMonthStart.toISOString()),
+      admin
+        .from("crm_leads")
+        .select("value_cents")
+        .eq("organization_id", orgId)
+        .eq("status", "won")
+        .gte("closed_at", currMonthStart.toISOString()),
+    ]);
 
   const wonThisMonth = (wonThisMonthRaw ?? []) as Array<{ value_cents: number | null }>;
   const salesThisMonth = wonThisMonth.length;
   const valueWonCentsThisMonth = wonThisMonth.reduce((s, r) => s + (r.value_cents ?? 0), 0);
 
-  // Reuniões: leads em estágios com "reuni" no nome (open, mês corrente).
   const meetingStageIds = stages.filter((s) => /reuni/i.test(s.name)).map((s) => s.id);
   let meetingsThisMonth = 0;
   if (meetingStageIds.length > 0 && pipelineId) {
