@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { generateTvToken } from "@/app/actions/settings/generateTvToken";
 import { saveTvConfig } from "@/app/actions/settings/saveTvConfig";
+import { copyToClipboard } from "@/lib/clipboard";
 
 const MONTH_NAMES = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
 
@@ -69,7 +70,10 @@ export function TvSettingsClient({ token: initialToken, commissionRate: initialR
 
   function copyUrl() {
     if (!tvUrl) return;
-    navigator.clipboard.writeText(tvUrl).then(() => toast.success("Link copiado!"));
+    copyToClipboard(tvUrl).then((ok) => {
+      if (ok) toast.success("Link copiado!");
+      else toast.error("Não foi possível copiar. Selecione e copie manualmente.");
+    });
   }
 
   return (
