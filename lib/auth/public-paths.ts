@@ -26,8 +26,8 @@ export const PUBLIC_PATHS: RegExp[] = [
   /^\/account-suspended$/,
   // TV pairing: página de código (pública) + dashboard (protegido por tv_token no server component)
   /^\/tv(\/par)?$/,
-  // TV pair API: generate e poll são públicos; confirm exige auth (checado no handler)
-  /^\/api\/v1\/tv\/pair\/(generate|poll)$/,
+  // TV pair API: generate, poll e activate são públicos; confirm exige auth (checado no handler)
+  /^\/api\/v1\/tv\/pair\/(generate|poll|activate)$/,
   // TV data API: aceita tv_token cookie além da sessão Supabase (handler valida)
   /^\/api\/v1\/tv$/,
 ];

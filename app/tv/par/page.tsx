@@ -1,209 +1,140 @@
-"use client";
+import { redirect } from "next/navigation";
 
-import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { createAdminClient } from "@/lib/supabase/admin";
 
-type PollStatus = "generating" | "waiting" | "confirmed" | "expired";
+export const dynamic = "force-dynamic";
 
-const C = {
-  bg: "#faf9f6",
-  text: "#1c1a16",
-  muted: "#5d594f",
-  border: "#e7e3da",
-  accent: "#506d48",
-  accentSoft: "#e4ebe0",
-  success: "#5a8a5f",
-  error: "#a94a3c",
-} as const;
+// Sem "use client" — servidor gera o código e renderiza o HTML completo.
+// O browser da TV só precisa recarregar a página a cada 3s (location.href).
+// Zero dependência de fetch, React hydration ou async/await no cliente.
 
-export default function TvPairPage() {
-  const [code, setCode] = useState<string | null>(null);
-  const [status, setStatus] = useState<PollStatus>("generating");
-  const [timeLeft, setTimeLeft] = useState(600); // 10 minutos
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const router = useRouter();
+function randomCode(): string {
+  return String(Math.floor(100000 + Math.random() * 900000));
+}
 
-  function startTimer() {
-    setTimeLeft(600);
-    timerRef.current = setInterval(() => {
-      setTimeLeft((t) => {
-        if (t <= 1) {
-          clearInterval(timerRef.current!);
-          return 0;
-        }
-        return t - 1;
-      });
-    }, 1000);
-  }
-
-  async function generate() {
-    setStatus("generating");
-    setCode(null);
-    if (pollRef.current) clearInterval(pollRef.current);
-    if (timerRef.current) clearInterval(timerRef.current);
-
-    try {
-      // GET para máxima compatibilidade com browsers de Smart TV.
-      const res = await fetch("/api/v1/tv/pair/generate", { cache: "no-store" });
-      if (!res.ok) { setStatus("expired"); return; }
-      const json = (await res.json()) as { data: { code: string } };
-      if (!json?.data?.code) { setStatus("expired"); return; }
-      setCode(json.data.code);
-      setStatus("waiting");
-      startTimer();
-    } catch {
-      setStatus("expired");
+async function createCode(admin: ReturnType<typeof createAdminClient>): Promise<string | null> {
+  for (let i = 0; i < 5; i++) {
+    const candidate = randomCode();
+    const { data } = await admin
+      .from("tv_pairing_codes")
+      .select("id")
+      .eq("code", candidate)
+      .eq("status", "pending")
+      .gt("expires_at", new Date().toISOString())
+      .maybeSingle();
+    if (!data) {
+      const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+      const { error } = await admin
+        .from("tv_pairing_codes")
+        .insert({ code: candidate, expires_at: expiresAt.toISOString() });
+      if (!error) return candidate;
     }
   }
+  return null;
+}
 
-  useEffect(() => {
-    void generate();
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+interface Props {
+  searchParams: Promise<{ code?: string }>;
+}
 
-  useEffect(() => {
-    if (!code || status !== "waiting") return;
+export default async function TvPairPage({ searchParams }: Props) {
+  const params = await searchParams;
+  const admin = createAdminClient();
+  let code: string | null = null;
+  let errorMsg: string | null = null;
 
-    pollRef.current = setInterval(function poll() {
-      fetch("/api/v1/tv/pair/poll?code=" + code, { cache: "no-store" })
-        .then(function(res) { return res.ok ? res.json() : null; })
-        .then(function(json) {
-          if (!json?.data) return;
-          if (json.data.status === "confirmed" && json.data.access_token) {
-            clearInterval(pollRef.current!);
-            clearInterval(timerRef.current!);
-            setStatus("confirmed");
-            document.cookie = "tv_token=" + json.data.access_token + "; path=/; max-age=" + (365 * 24 * 60 * 60) + "; samesite=lax";
-            setTimeout(function() { router.push("/tv"); }, 1800);
-          } else if (json.data.status === "expired") {
-            clearInterval(pollRef.current!);
-            setStatus("expired");
-          }
-        })
-        .catch(function() { /* mantém polling */ });
-    }, 2000);
+  if (params.code && /^\d{6}$/.test(params.code)) {
+    const { data: row } = await admin
+      .from("tv_pairing_codes")
+      .select("status, expires_at")
+      .eq("code", params.code)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
-    return () => { if (pollRef.current) clearInterval(pollRef.current); };
-  }, [code, status, router]);
+    if (row?.status === "confirmed") {
+      // Código confirmado — ativa sessão via route handler que seta o cookie.
+      redirect(`/api/v1/tv/pair/activate?code=${params.code}`);
+    }
 
-  const mins = String(Math.floor(timeLeft / 60)).padStart(2, "0");
-  const secs = String(timeLeft % 60).padStart(2, "0");
+    if (row?.status === "pending" && new Date(row.expires_at as string) > new Date()) {
+      code = params.code;
+    } else {
+      code = await createCode(admin);
+    }
+  } else {
+    code = await createCode(admin);
+  }
 
-  // Formata código: "482 751"
+  if (!code) {
+    errorMsg = "Não foi possível gerar o código. Recarregue a página.";
+  }
+
   const displayCode = code ? `${code.slice(0, 3)} ${code.slice(3)}` : null;
+  const refreshUrl = code ? `/tv/par?code=${code}` : "/tv/par";
+  // Recarrega a cada 3s — funciona em qualquer browser, sem fetch ou async.
+  const script = `setTimeout(function(){location.href='${refreshUrl}';},3000);`;
 
   return (
-    <div style={{
-      minHeight: "100vh",
-      background: C.bg,
-      display: "flex",
-      flexDirection: "column",
-      alignItems: "center",
-      justifyContent: "center",
-      fontFamily: "system-ui, -apple-system, sans-serif",
-      color: C.text,
-      padding: 24,
-      gap: 0,
-    }}>
-
-      {/* Ícone */}
-      <div style={{ fontSize: 64, marginBottom: 24 }}>📺</div>
-
-      <h1 style={{ fontSize: 28, fontWeight: 800, margin: 0, textAlign: "center" }}>
-        Conectar ao CRM
-      </h1>
-      <p style={{ fontSize: 16, color: C.muted, marginTop: 8, textAlign: "center", maxWidth: 340 }}>
-        No celular ou computador já logado, abra o painel e clique em{" "}
-        <strong>Conectar TV</strong>, depois digite o código abaixo.
-      </p>
-
-      {/* Código */}
+    <>
       <div style={{
-        marginTop: 40,
-        background: "#fff",
-        border: `2px solid ${status === "confirmed" ? C.success : C.border}`,
-        borderRadius: 20,
-        padding: "36px 52px",
+        minHeight: "100vh",
+        background: "#faf9f6",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        fontFamily: "Arial, sans-serif",
+        color: "#1c1a16",
+        padding: "24px",
         textAlign: "center",
-        minWidth: 260,
-        boxShadow: "0 4px 24px rgba(0,0,0,.06)",
-        transition: "border-color 0.3s",
       }}>
-        {status === "generating" && (
-          <div style={{ color: C.muted, fontSize: 18 }}>Gerando código…</div>
-        )}
-        {(status === "waiting" || status === "confirmed") && displayCode && (
-          <>
-            <div style={{
-              fontSize: 62,
-              fontWeight: 900,
-              letterSpacing: "0.12em",
-              fontVariantNumeric: "tabular-nums",
-              color: status === "confirmed" ? C.success : C.text,
-              lineHeight: 1,
-            }}>
-              {displayCode}
-            </div>
-            {status === "waiting" && (
-              <div style={{ marginTop: 14, fontSize: 13, color: C.muted }}>
-                Expira em <strong style={{ fontVariantNumeric: "tabular-nums" }}>{mins}:{secs}</strong>
+        <div style={{ fontSize: 56, marginBottom: 20 }}>&#128250;</div>
+
+        <h1 style={{ fontSize: 28, fontWeight: 800, margin: "0 0 8px" }}>
+          Conectar ao CRM
+        </h1>
+        <p style={{ fontSize: 15, color: "#5d594f", margin: "0 0 40px", maxWidth: 340, lineHeight: 1.5 }}>
+          No celular ou computador já logado, abra o painel TV e clique em{" "}
+          <strong>Conectar TV</strong>, depois digite o código abaixo.
+        </p>
+
+        <div style={{
+          background: "#fff",
+          border: "2px solid #e7e3da",
+          borderRadius: 20,
+          padding: "36px 52px",
+          minWidth: 260,
+          boxShadow: "0 4px 24px rgba(0,0,0,.06)",
+        }}>
+          {errorMsg ? (
+            <div style={{ color: "#a94a3c", fontSize: 15 }}>{errorMsg}</div>
+          ) : (
+            <>
+              <div style={{
+                fontSize: 62,
+                fontWeight: 900,
+                letterSpacing: "0.14em",
+                color: "#1c1a16",
+                lineHeight: 1,
+                fontVariantNumeric: "tabular-nums",
+              }}>
+                {displayCode}
               </div>
-            )}
-            {status === "confirmed" && (
-              <div style={{ marginTop: 14, fontSize: 16, color: C.success, fontWeight: 700 }}>
-                TV conectada! Abrindo painel…
+              <div style={{ marginTop: 14, fontSize: 13, color: "#5d594f" }}>
+                Código válido por 10 minutos
               </div>
-            )}
-          </>
-        )}
-        {status === "expired" && (
-          <div style={{ color: C.error, fontSize: 15, lineHeight: 1.5 }}>
-            Não foi possível gerar o código.<br />
-            <span style={{ fontSize: 12, color: C.muted }}>Tente gerar um novo abaixo.</span>
-          </div>
-        )}
+            </>
+          )}
+        </div>
+
+        <div style={{ marginTop: 20, fontSize: 13, color: "#9b9591" }}>
+          Atualizando automaticamente…
+        </div>
       </div>
 
-      {/* Botão de gerar novo código */}
-      {(status === "expired" || status === "waiting") && (
-        <button
-          type="button"
-          onClick={() => void generate()}
-          style={{
-            marginTop: 24,
-            padding: "10px 24px",
-            borderRadius: 8,
-            border: `1px solid ${C.border}`,
-            background: "#fff",
-            color: C.muted,
-            fontSize: 14,
-            cursor: "pointer",
-            fontFamily: "inherit",
-          }}
-        >
-          {status === "expired" ? "Gerar novo código" : "Gerar outro código"}
-        </button>
-      )}
-
-      {/* Spinner de aguardando */}
-      {status === "waiting" && (
-        <div style={{ marginTop: 20, display: "flex", alignItems: "center", gap: 8, color: C.muted, fontSize: 13 }}>
-          <div style={{
-            width: 14, height: 14, borderRadius: "50%",
-            border: `2px solid ${C.accentSoft}`,
-            borderTopColor: C.accent,
-            animation: "spin 0.9s linear infinite",
-          }} />
-          Aguardando confirmação no celular…
-        </div>
-      )}
-
-      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
-    </div>
+      {/* Plain JS — funciona em qualquer browser de TV */}
+      <script dangerouslySetInnerHTML={{ __html: script }} />
+    </>
   );
 }
