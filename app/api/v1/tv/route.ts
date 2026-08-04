@@ -43,13 +43,8 @@ export async function GET(req: NextRequest): Promise<Response> {
   const commissionRate =
     typeof orgSettings.tv_commission_rate === "number" ? orgSettings.tv_commission_rate : 0;
 
-  // New investment model: array of { id, month, amount }
   const investmentsArr =
-    (orgSettings.tv_investments as Array<{ id: string; month: string; amount: number }> | null) ??
-    // Fallback: migrate old tv_monthly_investments format if present
-    Object.entries(
-      (orgSettings.tv_monthly_investments as Record<string, number> | null) ?? {},
-    ).map(([month, amount]) => ({ id: month, month, amount }));
+    (orgSettings.tv_investments as Array<{ id: string; month: string; amount: number }> | null) ?? [];
 
   const investmentByMonth = new Map<string, number>();
   for (const inv of investmentsArr) {
