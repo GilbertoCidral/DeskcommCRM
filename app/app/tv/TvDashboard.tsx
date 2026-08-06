@@ -129,6 +129,41 @@ function smoothPath(ctx: CanvasRenderingContext2D, pts: Array<{ x: number; y: nu
 }
 
 // ---------------------------------------------------------------------------
+// SVG chart estático — renderiza sem JS, fallback para Sony TV
+// ---------------------------------------------------------------------------
+
+function SvgCommissionChart({ monthly }: { monthly: TvMonthly[] }) {
+  if (!monthly.length) return null;
+  const coms = monthly.map((m) => m.commission);
+  const invs = monthly.map((m) => m.investment);
+  const maxV = Math.max(...coms, ...invs, 1);
+  const n = monthly.length;
+  const W = 100, H = 80;
+  const pL = 9, pR = 2, pT = 4, pB = 12;
+  const pw = W - pL - pR, ph = H - pT - pB;
+  const tx = (i: number) => pL + (n > 1 ? (i / (n - 1)) * pw : pw / 2);
+  const ty = (v: number) => pT + ph * (1 - v / maxV);
+  const comD = coms.map((v, i) => `${i === 0 ? "M" : "L"}${tx(i).toFixed(1)},${ty(v).toFixed(1)}`).join(" ");
+  const invD = invs.some((v) => v > 0)
+    ? invs.map((v, i) => `${i === 0 ? "M" : "L"}${tx(i).toFixed(1)},${ty(v).toFixed(1)}`).join(" ")
+    : null;
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%" }} preserveAspectRatio="none">
+      {[0, 0.25, 0.5, 0.75, 1].map((f, i) => (
+        <line key={i} x1={pL} y1={pT + f * ph} x2={W - pR} y2={pT + f * ph} stroke={C.border} strokeWidth={0.3} />
+      ))}
+      {invD && <path d={invD} fill="none" stroke="#a8a398" strokeWidth={0.8} strokeDasharray="1.5 1" />}
+      <path d={`${comD} L${tx(n - 1).toFixed(1)},${(pT + ph).toFixed(1)} L${tx(0).toFixed(1)},${(pT + ph).toFixed(1)} Z`} fill="rgba(80,109,72,.12)" />
+      <path d={comD} fill="none" stroke={C.accent} strokeWidth={1.2} strokeLinejoin="round" strokeLinecap="round" />
+      {coms.map((v, i) => <circle key={i} cx={tx(i)} cy={ty(v)} r={1.5} fill={C.accent} />)}
+      {monthly.map((m, i) => (
+        <text key={i} x={tx(i)} y={H - 1} textAnchor="middle" fontSize={3.5} fill={C.muted}>{monthLabel(m.month)}</text>
+      ))}
+    </svg>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Componente principal
 // ---------------------------------------------------------------------------
 
@@ -212,6 +247,16 @@ export function TvDashboard({ initialData }: { initialData?: TvData }) {
     }, 1000);
     return () => clearInterval(id);
   }, [autoPlay]);
+
+  // Cancela o reload vanilla JS (adicionado no script) quando React hidratar.
+  // Sem isso, PC e TV fariam reload desnecessário — no TV sem React, o reload persiste.
+  useEffect(() => {
+    const w = window as Window & { __tvReloadId?: ReturnType<typeof setInterval> };
+    if (w.__tvReloadId !== undefined) {
+      clearInterval(w.__tvReloadId);
+      w.__tvReloadId = undefined;
+    }
+  }, []);
 
   async function confirmPair() {
     const code = pairCode.replace(/\D/g, "");
@@ -337,7 +382,7 @@ export function TvDashboard({ initialData }: { initialData?: TvData }) {
       {/* ── Header ── */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 24px", borderBottom: `1px solid ${C.border}`, background: C.surface, flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <div style={{ width: 32, height: 32, borderRadius: 8, background: C.accentSoft, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>📺</div>
+          <div style={{ width: 32, height: 32, borderRadius: 8, background: C.accentSoft, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: C.accent }}>TV</div>
           <div>
             <div style={{ fontWeight: 700, fontSize: 15 }}>Painel do Vendedor</div>
             <div style={{ fontSize: 11, color: C.muted }}>{data.org_name} · Performance em Tempo Real</div>
@@ -377,7 +422,7 @@ export function TvDashboard({ initialData }: { initialData?: TvData }) {
             onClick={() => { setShowPairModal(true); setPairState("idle"); setPairCode(""); setPairError(""); }}
             style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: C.accent, textDecoration: "none", background: C.accentSoft, border: `1px solid ${C.accent}`, borderRadius: 6, padding: "4px 9px", cursor: "pointer", fontFamily: "inherit" }}
           >
-            📺 Conectar TV
+            Conectar TV
           </button>
           <a
             href="/app/leads"
@@ -528,7 +573,11 @@ export function TvDashboard({ initialData }: { initialData?: TvData }) {
                 </button>
               </div>
             </div>
-            <canvas ref={canvasRef} style={{ flex: 1, width: "100%", display: "block" }} />
+            {/* Wrapper: SVG estático atrás (funciona sem React) + canvas na frente (React anima) */}
+            <div style={{ flex: 1, position: "relative", minHeight: 0 }}>
+              <SvgCommissionChart monthly={data.monthly} />
+              <canvas ref={canvasRef} style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%" }} />
+            </div>
           </div>
         </div>
 
@@ -561,7 +610,7 @@ export function TvDashboard({ initialData }: { initialData?: TvData }) {
           ].map((m) => (
             <div key={m.label} style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: 12, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, boxShadow: "0 1px 2px rgba(20,18,14,.05)", padding: "10px 16px" }}>
               <div style={{ width: 38, height: 38, borderRadius: "50%", background: C.accentSoft, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: 16 }}>
-                {m.label === "CPL" ? "📊" : m.label === "CAC" ? "👤" : m.label === "ROI" ? "📈" : "✅"}
+                <span style={{ fontSize: 11, fontWeight: 700, color: C.accent }}>{m.label}</span>
               </div>
               <div>
                 <div style={{ fontSize: 10, color: C.muted, textTransform: "uppercase", letterSpacing: "0.04em" }}>{m.label}</div>
@@ -631,7 +680,7 @@ export function TvDashboard({ initialData }: { initialData?: TvData }) {
             background: C.surface, borderRadius: 16, padding: "28px 32px", width: 340,
             boxShadow: "0 8px 40px rgba(0,0,0,.18)", display: "flex", flexDirection: "column", gap: 16,
           }}>
-            <div style={{ fontWeight: 700, fontSize: 16 }}>📺 Conectar TV</div>
+            <div style={{ fontWeight: 700, fontSize: 16 }}>Conectar TV</div>
             <p style={{ fontSize: 13, color: C.muted, margin: 0, lineHeight: 1.5 }}>
               Na TV, abra <strong>seucrm.com/tv/par</strong> e digite o código de 6 dígitos que aparece na tela.
             </p>
@@ -687,8 +736,24 @@ export function TvDashboard({ initialData }: { initialData?: TvData }) {
         @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
         @keyframes spin{to{transform:rotate(360deg)}}
       `}</style>
-      {/* Relógio via JS puro — funciona mesmo sem hidratação React na Sony TV */}
-      <script dangerouslySetInnerHTML={{ __html: `(function(){var DAYS=['dom','seg','ter','qua','qui','sex','sab'];var MONTHS=['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];function tick(){var d=new Date();var hh=('0'+d.getHours()).slice(-2);var mm=('0'+d.getMinutes()).slice(-2);var ss=('0'+d.getSeconds()).slice(-2);var cl=document.getElementById('tv-clock');if(cl)cl.textContent=hh+':'+mm+':'+ss;var dt=document.getElementById('tv-date');if(dt)dt.textContent=DAYS[d.getDay()]+', '+('0'+d.getDate()).slice(-2)+' '+MONTHS[d.getMonth()];}tick();setInterval(tick,1000);})();` }} />
+      {/* Scripts vanilla JS — funcionam mesmo sem hidratação React na Sony TV */}
+      <script dangerouslySetInnerHTML={{ __html: `(function(){
+var DAYS=['dom','seg','ter','qua','qui','sex','sab'];
+var MONTHS=['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+function tick(){
+  var d=new Date();
+  var hh=('0'+d.getHours()).slice(-2);
+  var mm=('0'+d.getMinutes()).slice(-2);
+  var ss=('0'+d.getSeconds()).slice(-2);
+  var cl=document.getElementById('tv-clock');
+  if(cl)cl.textContent=hh+':'+mm+':'+ss;
+  var dt=document.getElementById('tv-date');
+  if(dt)dt.textContent=DAYS[d.getDay()]+', '+('0'+d.getDate()).slice(-2)+' '+MONTHS[d.getMonth()];
+}
+tick();
+setInterval(tick,1000);
+window.__tvReloadId=setInterval(function(){location.reload();},120000);
+})();` }} />
     </div>
   );
 }
