@@ -317,7 +317,7 @@ export function TvDashboard({ initialData }: { initialData?: TvData }) {
   if (loading || !data) {
     return (
       <div style={{
-        position: "fixed", inset: 0, zIndex: 100,
+        position: "fixed", top: 0, right: 0, bottom: 0, left: 0, zIndex: 100,
         background: C.bg, display: "flex", alignItems: "center", justifyContent: "center",
         flexDirection: "column", gap: 16,
       }}>
@@ -330,9 +330,9 @@ export function TvDashboard({ initialData }: { initialData?: TvData }) {
 
   return (
     <div style={{
-      position: "fixed", inset: 0, zIndex: 100,
+      position: "fixed", top: 0, right: 0, bottom: 0, left: 0, zIndex: 100,
       background: C.bg, display: "flex", flexDirection: "column",
-      fontFamily: "system-ui, -apple-system, sans-serif", color: C.text, overflow: "hidden",
+      fontFamily: "Arial, sans-serif", color: C.text, overflow: "hidden",
     }}>
       {/* ── Header ── */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 24px", borderBottom: `1px solid ${C.border}`, background: C.surface, flexShrink: 0 }}>
@@ -368,8 +368,8 @@ export function TvDashboard({ initialData }: { initialData?: TvData }) {
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <div style={{ width: 8, height: 8, borderRadius: "50%", background: C.success, animation: "pulse 2s infinite" }} />
             <div style={{ textAlign: "right" }}>
-              <div style={{ fontSize: 20, fontWeight: 700, fontVariantNumeric: "tabular-nums", letterSpacing: "0.02em" }}>{timeStr}</div>
-              <div style={{ fontSize: 11, color: C.muted }}>{dateStr}</div>
+              <div id="tv-clock" style={{ fontSize: 20, fontWeight: 700, fontVariantNumeric: "tabular-nums", letterSpacing: "0.02em" }}>{timeStr}</div>
+              <div id="tv-date" style={{ fontSize: 11, color: C.muted }}>{dateStr}</div>
             </div>
           </div>
           <button
@@ -389,7 +389,7 @@ export function TvDashboard({ initialData }: { initialData?: TvData }) {
       </div>
 
       {/* ── KPIs ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12, padding: "14px 24px", background: C.bg, flexShrink: 0 }}>
+      <div style={{ display: "flex", flexDirection: "row", gap: 12, padding: "14px 24px", background: C.bg, flexShrink: 0 }}>
         {[
           { label: "Comissão / Mês", value: fmtBRL(com) },
           { label: "Valor Fechado", value: fmtBRL(data.kpis.value_won_cents_this_month / 100) },
@@ -397,7 +397,7 @@ export function TvDashboard({ initialData }: { initialData?: TvData }) {
           { label: "Reuniões", value: String(data.kpis.meetings_this_month) },
           { label: "Vendas", value: String(data.kpis.sales_this_month) },
         ].map((kpi) => (
-          <div key={kpi.label} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, boxShadow: "0 1px 2px rgba(20,18,14,.05)", padding: "16px 18px", display: "flex", flexDirection: "column", gap: 8 }}>
+          <div key={kpi.label} style={{ flex: 1, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, boxShadow: "0 1px 2px rgba(20,18,14,.05)", padding: "16px 18px", display: "flex", flexDirection: "column", gap: 8 }}>
             <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em", color: C.muted }}>{kpi.label}</div>
             <div style={{ fontSize: 32, fontWeight: 800, fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>{kpi.value}</div>
           </div>
@@ -405,10 +405,10 @@ export function TvDashboard({ initialData }: { initialData?: TvData }) {
       </div>
 
       {/* ── Main grid ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "34% 1fr 26%", gap: 12, padding: "0 24px 16px", overflow: "hidden", flex: 1, minHeight: 0 }}>
+      <div style={{ display: "flex", flexDirection: "row", gap: 12, padding: "0 24px 16px", overflow: "hidden", flex: 1, minHeight: 0 }}>
 
         {/* ── Funil ── */}
-        <div style={{ display: "flex", flexDirection: "column", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, boxShadow: "0 1px 2px rgba(20,18,14,.05)", overflow: "hidden", minHeight: 0 }}>
+        <div style={{ width: "34%", flexShrink: 0, display: "flex", flexDirection: "column", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, boxShadow: "0 1px 2px rgba(20,18,14,.05)", overflow: "hidden", minHeight: 0 }}>
           <div style={{ padding: "12px 16px 8px", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: C.muted, borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
             {data.pipeline_name ?? "Funil de Vendas"}
           </div>
@@ -487,7 +487,7 @@ export function TvDashboard({ initialData }: { initialData?: TvData }) {
         </div>
 
         {/* ── Gráfico ── */}
-        <div style={{ display: "flex", flexDirection: "column", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, boxShadow: "0 1px 2px rgba(20,18,14,.05)", overflow: "hidden", minHeight: 0 }}>
+        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, boxShadow: "0 1px 2px rgba(20,18,14,.05)", overflow: "hidden", minHeight: 0 }}>
           <div style={{ padding: "12px 16px 8px", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: C.muted, borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
             {meta.title}
           </div>
@@ -533,7 +533,7 @@ export function TvDashboard({ initialData }: { initialData?: TvData }) {
         </div>
 
         {/* ── Coluna direita ── */}
-        <div style={{ display: "flex", flexDirection: "column", overflowY: "auto", minHeight: 0, gap: 10, paddingRight: 6 }}>
+        <div style={{ width: "26%", flexShrink: 0, display: "flex", flexDirection: "column", overflowY: "auto", minHeight: 0, gap: 10, paddingRight: 6 }}>
           {/* Belt */}
           <div style={{ flexShrink: 0, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, boxShadow: "0 1px 2px rgba(20,18,14,.05)", padding: "12px 18px" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
@@ -687,6 +687,8 @@ export function TvDashboard({ initialData }: { initialData?: TvData }) {
         @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
         @keyframes spin{to{transform:rotate(360deg)}}
       `}</style>
+      {/* Relógio via JS puro — funciona mesmo sem hidratação React na Sony TV */}
+      <script dangerouslySetInnerHTML={{ __html: `(function(){var DAYS=['dom','seg','ter','qua','qui','sex','sab'];var MONTHS=['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];function tick(){var d=new Date();var hh=('0'+d.getHours()).slice(-2);var mm=('0'+d.getMinutes()).slice(-2);var ss=('0'+d.getSeconds()).slice(-2);var cl=document.getElementById('tv-clock');if(cl)cl.textContent=hh+':'+mm+':'+ss;var dt=document.getElementById('tv-date');if(dt)dt.textContent=DAYS[d.getDay()]+', '+('0'+d.getDate()).slice(-2)+' '+MONTHS[d.getMonth()];}tick();setInterval(tick,1000);})();` }} />
     </div>
   );
 }
